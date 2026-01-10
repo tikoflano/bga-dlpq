@@ -1,0 +1,13 @@
+{
+  "scripts": {
+    "init": "bga-init $BGA_PROJECT_NAME \"$BGA_USERNAME\" modules --typescript --scss",
+    "build": "bga-build",
+    "watch": "bga-build --watch"
+  },
+  "devDependencies": {
+    "@prettier/plugin-php": "^0.22.4",
+    "bga-ts-template": "^2.0.6",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3"
+  }
+}
