@@ -1,228 +1,402 @@
-/**
+/*
  *------
  * BGA framework: Gregory Isabelli & Emmanuel Colin & BoardGameArena
- * DondeLasPapasQueman implementation : © <Your name here> <Your email address here>
+ * DondeLasPapasQueman implementation : © tikoflano
  *
  * This code has been produced on the BGA studio platform for use on http://boardgamearena.com.
  * See http://en.boardgamearena.com/#!doc/Studio for more information.
  * -----
- *
- * Game.js
- *
- * DondeLasPapasQueman user interface script
- * 
- * In this file, you are describing the logic of your user interface, in Javascript language.
- *
  */
-
-export class Game {
+class Game {
     constructor(bga) {
-        console.log('dondelaspapasqueman constructor');
+        // Selected cards for threesome
+        this.selectedCards = [];
+        // Reaction phase timer
+        this.reactionTimer = null;
+        console.log("dondelaspapasqueman constructor");
         this.bga = bga;
-            
-        // Here, you can init the global variables of your user interface
-        // Example:
-        // this.myGlobalValue = 0;
-
     }
-    
-    /*
-        setup:
-        
-        This method must set up the game user interface according to current game situation specified
-        in parameters.
-        
-        The method is called each time the game interface is displayed to a player, ie:
-        _ when the game starts
-        _ when a player refreshes the game page (F5)
-        
-        "gamedatas" argument contains all datas retrieved by your "getAllDatas" PHP method.
-    */
-    
-    setup( gamedatas ) {
-        console.log( "Starting game setup" );
+    setup(gamedatas) {
+        console.log("Starting game setup");
         this.gamedatas = gamedatas;
-
-        // Example to add a div on the game area
-        this.bga.gameArea.getElement().insertAdjacentHTML('beforeend', `
+        // Create game area structure
+        this.bga.gameArea.getElement().insertAdjacentHTML("beforeend", `
             <div id="player-tables"></div>
+            <div id="hand-area"></div>
+            <div id="common-area">
+                <div id="deck-area">Deck: <span id="deck-count">0</span></div>
+                <div id="discard-area">Discard: <span id="discard-count">0</span></div>
+                <div id="golden-potato-pile">Golden Potatoes: <span id="golden-potato-count">0</span></div>
+            </div>
         `);
-        
         // Setting up player boards
-        Object.values(gamedatas.players).forEach(player => {
-            // example of setting up players boards
-            this.bga.playerPanels.getElement(player.id).insertAdjacentHTML('beforeend', `
-                <span id="energy-player-counter-${player.id}"></span> Energy
+        Object.values(gamedatas.players).forEach((player) => {
+            const playerId = typeof player.id === 'string' ? parseInt(player.id, 10) : player.id;
+            // Golden potato counter
+            this.bga.playerPanels.getElement(playerId).insertAdjacentHTML("beforeend", `
+                <div id="golden-potato-counter-${player.id}"></div>
             `);
-            const counter = new ebg.counter();
-            counter.create(`energy-player-counter-${player.id}`, {
-                value: player.energy,
-                playerCounter: 'energy',
-                playerId: player.id
+            const goldenPotatoCounter = new ebg.counter();
+            goldenPotatoCounter.create(`golden-potato-counter-${player.id}`, {
+                value: player.golden_potatoes || 0,
+                playerCounter: "golden_potatoes",
+                playerId: playerId,
             });
-
-            // example of adding a div for each player
-            document.getElementById('player-tables').insertAdjacentHTML('beforeend', `
+            // Player table
+            const playerTables = document.getElementById("player-tables");
+            if (playerTables) {
+                playerTables.insertAdjacentHTML("beforeend", `
                 <div id="player-table-${player.id}">
                     <strong>${player.name}</strong>
-                    <div>Player zone content goes here</div>
+                    <div>Golden Potatoes: <span id="player-golden-potatoes-${player.id}">${player.golden_potatoes || 0}</span></div>
                 </div>
             `);
+            }
         });
-        
-        // TODO: Set up your game interface here, according to "gamedatas"
-        
-
-        // Setup game notifications to handle (see "setupNotifications" method below)
+        // Display hand
+        this.updateHand(gamedatas.hand || []);
+        // Update deck and discard counts
+        this.updateDeckCount(gamedatas.deckCount || 0);
+        this.updateDiscardCount(gamedatas.discardCount || 0);
+        this.updateGoldenPotatoPileCount(gamedatas.goldenPotatoPileCount || 0);
+        // Setup game notifications
         this.setupNotifications();
-
-        console.log( "Ending game setup" );
+        console.log("Ending game setup");
     }
-    
-
     ///////////////////////////////////////////////////
     //// Game & client states
-    
-    // onEnteringState: this method is called each time we are entering into a new game state.
-    //                  You can use this method to perform some user interface changes at this moment.
-    //
-    onEnteringState( stateName, args ) {
-        console.log( 'Entering state: '+stateName, args );
-        
-        switch( stateName ) {
-        
-        /* Example:
-        
-        case 'myGameState':
-        
-            // Show some HTML block at this game state
-            document.getElementById('my_html_block_id').style.display = 'block';
-            
-            break;
-        */
-        
-        
-        case 'dummy':
-            break;
+    onEnteringState(stateName, args) {
+        console.log("Entering state: " + stateName, args);
+        switch (stateName) {
+            case "PlayerTurn":
+                this.selectedCards = [];
+                if (args.canDiscardAndDraw) {
+                    this.bga.statusBar.addActionButton(_("Discard and Draw 3"), () => {
+                        this.bga.actions.performAction("actDiscardAndDraw", {});
+                    }, { color: "blue" });
+                }
+                break;
+            case "ReactionPhase":
+                this.startReactionTimer(args);
+                break;
+            case "DiscardPhase":
+                this.showDiscardPhase(args);
+                break;
         }
     }
-
-    // onLeavingState: this method is called each time we are leaving a game state.
-    //                 You can use this method to perform some user interface changes at this moment.
-    //
-    onLeavingState( stateName )
-    {
-        console.log( 'Leaving state: '+stateName );
-        
-        switch( stateName ) {
-        
-        /* Example:
-        
-        case 'myGameState':
-        
-            // Hide the HTML block we are displaying only during this game state
-            document.getElementById('my_html_block_id').style.display = 'none';
-            
-            break;
-        */
-        
-        
-        case 'dummy':
-            break;
-        }               
-    }
-
-    // onUpdateActionButtons: in this method you can manage "action buttons" that are displayed in the
-    //                        action status bar (ie: the HTML links in the status bar).
-    //        
-    onUpdateActionButtons( stateName, args ) {
-        console.log( 'onUpdateActionButtons: '+stateName, args );
-                    
-        if (this.bga.gameui.isCurrentPlayerActive()) {            
-            switch( stateName ) {
-                case 'PlayerTurn':    
-                const playableCardsIds = args.playableCardsIds; // returned by the argPlayerTurn
-
-                // Add test action buttons in the action status bar, simulating a card click:
-                playableCardsIds.forEach(
-                    cardId => this.bga.statusBar.addActionButton(_('Play card with id ${card_id}').replace('${card_id}', cardId), () => this.onCardClick(cardId))
-                ); 
-
-                this.bga.statusBar.addActionButton(_('Pass'), () => this.bga.actions.performAction("actPass"), { color: 'secondary' }); 
+    onLeavingState(stateName) {
+        console.log("Leaving state: " + stateName);
+        switch (stateName) {
+            case "ReactionPhase":
+                this.stopReactionTimer();
                 break;
+            case "DiscardPhase":
+                this.hideDiscardPhase();
+                break;
+        }
+    }
+    onUpdateActionButtons(stateName, args) {
+        console.log("onUpdateActionButtons: " + stateName, args);
+        if (this.bga.gameui.isCurrentPlayerActive()) {
+            switch (stateName) {
+                case "PlayerTurn":
+                    // Clear previous buttons
+                    this.bga.statusBar.clear();
+                    // Add "End Turn" button
+                    this.bga.statusBar.addActionButton(_("End Turn"), () => {
+                        this.bga.actions.performAction("actEndTurn", {});
+                    }, { color: "secondary" });
+                    // Add "Play Threesome" button if cards are selected
+                    if (this.selectedCards.length == 3) {
+                        this.bga.statusBar.addActionButton(_("Play Threesome"), () => {
+                            this.bga.actions.performAction("actPlayThreesome", {
+                                card_ids: this.selectedCards,
+                            });
+                            this.selectedCards = [];
+                        }, { color: "primary" });
+                    }
+                    break;
+                case "ReactionPhase":
+                    // Add interrupt card buttons if player has them
+                    if (args.players && args.players[this.bga.gameui.player_id]) {
+                        const playerData = args.players[this.bga.gameui.player_id];
+                        if (playerData.hasNoPoh) {
+                            this.bga.statusBar.addActionButton(_("Play No Poh"), () => {
+                                this.bga.actions.performAction("actPlayNoPoh", {});
+                            }, { color: "red" });
+                        }
+                        if (playerData.hasTeDijeQueNoPoh) {
+                            this.bga.statusBar.addActionButton(_("Play Te Dije Que No Poh"), () => {
+                                this.bga.actions.performAction("actPlayTeDijeQueNoPoh", {});
+                            }, { color: "red" });
+                        }
+                    }
+                    break;
+                case "DiscardPhase":
+                    // Buttons handled in showDiscardPhase
+                    break;
             }
         }
     }
-
     ///////////////////////////////////////////////////
     //// Utility methods
-    
-    /*
-    
-        Here, you can defines some utility methods that you can use everywhere in your javascript
-        script.
-    
-    */
-
-
-    ///////////////////////////////////////////////////
-    //// Player's action
-    
-    /*
-    
-        Here, you are defining methods to handle player's action (ex: results of mouse click on 
-        game objects).
-        
-        Most of the time, these methods:
-        _ check the action is possible at this game state.
-        _ make a call to the game server
-    
-    */
-    
-    // Example:
-    
-    onCardClick( card_id ) {
-        console.log( 'onCardClick', card_id );
-
-        this.bga.actions.performAction("actPlayCard", { 
-            card_id,
-        }).then(() =>  {                
-            // What to do after the server call if it succeeded
-            // (most of the time, nothing, as the game will react to notifs / change of state instead)
-        });        
-    }
-
-    
-    ///////////////////////////////////////////////////
-    //// Reaction to cometD notifications
-
-    /*
-        setupNotifications:
-        
-        In this method, you associate each of your game notifications with your local method to handle it.
-        
-        Note: game notification names correspond to "notifyAllPlayers" and "notifyPlayer" calls in
-                your dondelaspapasqueman.game.php file.
-    
-    */
-    setupNotifications() {
-        console.log( 'notifications subscriptions setup' );
-        
-        // automatically listen to the notifications, based on the `notif_xxx` function on this class. 
-        // Uncomment the logger param to see debug information in the console about notifications.
-        this.bga.notifications.setupPromiseNotifications({
-            // logger: console.log
+    updateHand(hand) {
+        const handArea = document.getElementById("hand-area");
+        if (!handArea)
+            return;
+        handArea.innerHTML = '<h3>Your Hand</h3><div id="hand-cards"></div>';
+        const handCards = document.getElementById("hand-cards");
+        if (!handCards)
+            return;
+        hand.forEach((card) => {
+            const cardDiv = document.createElement("div");
+            cardDiv.className = "card";
+            cardDiv.dataset.cardId = card.id.toString();
+            cardDiv.innerHTML = `
+                <div class="card-type">${card.type}</div>
+                <div class="card-name">Card ${card.id}</div>
+                <div class="card-value">Value: ${this.getCardValue(card)}</div>
+            `;
+            // Add click handler
+            cardDiv.addEventListener("click", () => this.onCardClick(card.id));
+            // Highlight if selected
+            if (this.selectedCards.includes(card.id)) {
+                cardDiv.classList.add("selected");
+            }
+            handCards.appendChild(cardDiv);
         });
     }
-    
-    // TODO: from this point and below, you can write your game notifications handling methods
-    
-    /*
-    Example:
-    async notif_cardPlayed( args ) {
-        // Note: args contains the arguments specified during you "notifyAllPlayers" / "notifyPlayer" PHP call
-        
-        // TODO: play the card in the user interface.
+    getCardValue(card) {
+        // Decode card_type_arg to get value
+        const typeArg = card.type_arg || 0;
+        const value = Math.floor((typeArg % 10000) / 100);
+        return value;
     }
-    */
+    updateDeckCount(count) {
+        const deckCountEl = document.getElementById("deck-count");
+        if (deckCountEl) {
+            deckCountEl.textContent = count.toString();
+        }
+    }
+    updateDiscardCount(count) {
+        const discardCountEl = document.getElementById("discard-count");
+        if (discardCountEl) {
+            discardCountEl.textContent = count.toString();
+        }
+    }
+    updateGoldenPotatoPileCount(count) {
+        const goldenPotatoCountEl = document.getElementById("golden-potato-count");
+        if (goldenPotatoCountEl) {
+            goldenPotatoCountEl.textContent = count.toString();
+        }
+    }
+    startReactionTimer(args) {
+        // Show 3-second timer
+        const timerDiv = document.createElement("div");
+        timerDiv.id = "reaction-timer";
+        timerDiv.className = "reaction-timer";
+        timerDiv.innerHTML = '<div>Reaction Phase: <span id="timer-countdown">3</span> seconds</div>';
+        this.bga.gameArea.getElement().appendChild(timerDiv);
+        let timeLeft = 3;
+        this.reactionTimer = window.setInterval(() => {
+            timeLeft--;
+            const countdownEl = document.getElementById("timer-countdown");
+            if (countdownEl) {
+                countdownEl.textContent = timeLeft.toString();
+            }
+            if (timeLeft <= 0) {
+                this.stopReactionTimer();
+            }
+        }, 1000);
+    }
+    stopReactionTimer() {
+        if (this.reactionTimer !== null) {
+            clearInterval(this.reactionTimer);
+            this.reactionTimer = null;
+        }
+        const timerDiv = document.getElementById("reaction-timer");
+        if (timerDiv) {
+            timerDiv.remove();
+        }
+    }
+    showDiscardPhase(args) {
+        const discardDiv = document.createElement("div");
+        discardDiv.id = "discard-phase-ui";
+        discardDiv.className = "discard-phase";
+        discardDiv.innerHTML = `
+            <h3>Discard Cards</h3>
+            <p>You have ${args.handSize} cards. Discard ${args.cardsToDiscard} to get down to 7.</p>
+            <div id="discard-selection-area"></div>
+            <button id="confirm-discard" disabled>Confirm Discard</button>
+        `;
+        this.bga.gameArea.getElement().appendChild(discardDiv);
+        // Display cards for selection
+        const selectionArea = document.getElementById("discard-selection-area");
+        if (!selectionArea)
+            return;
+        const selectedForDiscard = [];
+        if (args.hand && Array.isArray(args.hand)) {
+            args.hand.forEach((card) => {
+                const cardDiv = document.createElement("div");
+                cardDiv.className = "discard-card";
+                cardDiv.dataset.cardId = card.id.toString();
+                cardDiv.innerHTML = `Card ${card.id}`;
+                cardDiv.addEventListener("click", () => {
+                    if (cardDiv.classList.contains("selected")) {
+                        cardDiv.classList.remove("selected");
+                        const index = selectedForDiscard.indexOf(card.id);
+                        if (index > -1)
+                            selectedForDiscard.splice(index, 1);
+                    }
+                    else {
+                        cardDiv.classList.add("selected");
+                        selectedForDiscard.push(card.id);
+                    }
+                    // Enable/disable confirm button
+                    const confirmBtn = document.getElementById("confirm-discard");
+                    if (confirmBtn) {
+                        confirmBtn.disabled = selectedForDiscard.length < args.cardsToDiscard;
+                    }
+                });
+                selectionArea.appendChild(cardDiv);
+            });
+        }
+        // Confirm button handler
+        const confirmBtn = document.getElementById("confirm-discard");
+        if (confirmBtn) {
+            confirmBtn.addEventListener("click", () => {
+                if (selectedForDiscard.length >= args.cardsToDiscard) {
+                    this.bga.actions.performAction("actDiscardCards", {
+                        card_ids: selectedForDiscard,
+                    });
+                }
+            });
+        }
+    }
+    hideDiscardPhase() {
+        const discardDiv = document.getElementById("discard-phase-ui");
+        if (discardDiv) {
+            discardDiv.remove();
+        }
+    }
+    ///////////////////////////////////////////////////
+    //// Player's action
+    onCardClick(card_id) {
+        console.log("onCardClick", card_id);
+        // Toggle selection for threesome
+        if (this.selectedCards.includes(card_id)) {
+            this.selectedCards = this.selectedCards.filter((id) => id !== card_id);
+        }
+        else {
+            if (this.selectedCards.length < 3) {
+                this.selectedCards.push(card_id);
+            }
+            else {
+                // Replace first selected card
+                this.selectedCards.shift();
+                this.selectedCards.push(card_id);
+            }
+        }
+        // Update UI
+        this.updateHand(this.gamedatas.hand || []);
+        // Update action buttons
+        this.bga.gameui.onUpdateActionButtons();
+        // If 3 cards selected, offer to play as single card or wait for threesome button
+        // For now, just play as single card if clicked again
+        if (this.selectedCards.length != 3) {
+            this.bga.actions
+                .performAction("actPlayCard", {
+                card_id,
+            })
+                .then(() => {
+                // What to do after the server call if it succeeded
+            });
+        }
+    }
+    ///////////////////////////////////////////////////
+    //// Reaction to cometD notifications
+    setupNotifications() {
+        console.log("notifications subscriptions setup");
+        this.bga.notifications.setupPromiseNotifications({
+        // logger: console.log
+        });
+    }
+    async notif_cardPlayed(args) {
+        console.log("Card played:", args);
+        // Update discard count
+        this.updateDiscardCount((this.gamedatas.discardCount || 0) + 1);
+        // Remove card from hand if it's current player's card
+        if (this.gamedatas.hand) {
+            this.gamedatas.hand = this.gamedatas.hand.filter((card) => card.id !== args.card_id);
+            this.updateHand(this.gamedatas.hand);
+        }
+    }
+    async notif_threesomePlayed(args) {
+        console.log("Threesome played:", args);
+        // Update discard count
+        this.updateDiscardCount((this.gamedatas.discardCount || 0) + 3);
+        // Remove cards from hand
+        if (this.gamedatas.hand) {
+            this.gamedatas.hand = this.gamedatas.hand.filter((card) => !args.card_ids.includes(card.id));
+            this.updateHand(this.gamedatas.hand);
+        }
+        // Update golden potatoes
+        if (this.gamedatas.players && this.gamedatas.players[args.player_id]) {
+            this.gamedatas.players[args.player_id].golden_potatoes =
+                (this.gamedatas.players[args.player_id].golden_potatoes || 0) + args.golden_potatoes;
+        }
+    }
+    async notif_cardCancelled(args) {
+        console.log("Card cancelled:", args);
+        // Card was cancelled, no effect
+    }
+    async notif_threesomeCancelled(args) {
+        console.log("Threesome cancelled:", args);
+        // Threesome was cancelled, reverse golden potatoes
+        if (this.gamedatas.players && this.gamedatas.players[args.target_player_id]) {
+            this.gamedatas.players[args.target_player_id].golden_potatoes = Math.max(0, (this.gamedatas.players[args.target_player_id].golden_potatoes || 0) - 3);
+        }
+    }
+    async notif_cardDrawn(args) {
+        console.log("Card drawn:", args);
+        // Update deck count
+        this.updateDeckCount(Math.max(0, (this.gamedatas.deckCount || 0) - 1));
+        // Add card to hand if it's current player
+        if (args.player_id == this.bga.gameui.player_id && this.gamedatas.hand) {
+            // Card will be added by server, just refresh
+            this.bga.gameui.refreshPage();
+        }
+    }
+    async notif_cardsDiscarded(args) {
+        console.log("Cards discarded:", args);
+        // Update discard count
+        this.updateDiscardCount((this.gamedatas.discardCount || 0) + args.count);
+        // Remove cards from hand
+        if (this.gamedatas.hand) {
+            this.gamedatas.hand = this.gamedatas.hand.filter((card) => !args.card_ids.includes(card.id));
+            this.updateHand(this.gamedatas.hand);
+        }
+    }
+    async notif_turnEnded(args) {
+        console.log("Turn ended:", args);
+    }
+    async notif_emptyHandDraw(args) {
+        console.log("Empty hand draw:", args);
+        // Update deck count
+        this.updateDeckCount(Math.max(0, (this.gamedatas.deckCount || 0) - 3));
+    }
+    async notif_discardAndDraw(args) {
+        console.log("Discard and draw:", args);
+        // Update deck and discard counts
+        this.updateDeckCount(Math.max(0, (this.gamedatas.deckCount || 0) - 3));
+        this.updateDiscardCount((this.gamedatas.discardCount || 0) + 1);
+    }
+    async notif_deckReshuffled(args) {
+        console.log("Deck reshuffled:", args);
+        // Deck was reshuffled, update counts
+        this.updateDeckCount(this.gamedatas.deckCount || 0);
+        this.updateDiscardCount(0);
+    }
 }
+
+export { Game };

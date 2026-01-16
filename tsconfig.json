@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ES2022",
+    "moduleResolution": "node",
+    "lib": ["dom", "esnext"],
+    "sourceMap": false,
+    "rootDir": "modules/src",
+    "types": []
+  },
+  "include": [
+    "bga-framework.d.ts",
+    "modules/src/**/*.d.ts",
+    "modules/src/**/*.ts"
+  ]
+}

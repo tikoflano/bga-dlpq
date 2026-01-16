@@ -21,23 +21,79 @@ class NextPlayer extends \Bga\GameFramework\States\GameState
     }
 
     /**
-     * Game state action, example content.
-     *
-     * The onEnteringState method of state `nextPlayer` is called everytime the current game state is set to `nextPlayer`.
+     * Called when entering NextPlayer state
      */
     function onEnteringState(int $activePlayerId) {
 
         // Give some extra time to the active player when he completed an action
         $this->game->giveExtraTime($activePlayerId);
         
+        // Check if we should skip the end-of-turn draw
+        $skipDraw = $this->game->getGameStateValue('skip_draw_flag') == 1;
+        $this->game->setGameStateValue('skip_draw_flag', 0); // Reset flag
+
+        if (!$skipDraw) {
+            // Draw 1 card from deck
+            $drawnCard = $this->game->cards->pickCard('deck', $activePlayerId);
+            
+            if ($drawnCard) {
+                $this->game->notify->all("cardDrawn", clienttranslate('${player_name} draws a card'), [
+                    "player_id" => $activePlayerId,
+                    "player_name" => $this->game->getPlayerNameById($activePlayerId),
+                    "card_id" => $drawnCard['id'],
+                ]);
+
+                // Check hand size
+                $hand = $this->game->cards->getPlayerHand($activePlayerId);
+                $handSize = count($hand);
+
+                if ($handSize > 7) {
+                    // Transition to DiscardPhase
+                    return DiscardPhase::class;
+                }
+            } else {
+                // Deck is empty - handle deck exhaustion
+                // For now, just continue (could reshuffle discard or end game)
+                $discardCount = $this->game->cards->countCardInLocation('discard');
+                if ($discardCount > 0) {
+                    // Reshuffle discard into deck
+                    $this->game->cards->moveAllCardsInLocation('discard', 'deck');
+                    $this->game->cards->shuffle('deck');
+                    $this->game->notify->all("deckReshuffled", clienttranslate('The discard pile is reshuffled into the deck'));
+                    
+                    // Try drawing again
+                    $drawnCard = $this->game->cards->pickCard('deck', $activePlayerId);
+                    if ($drawnCard) {
+                        $hand = $this->game->cards->getPlayerHand($activePlayerId);
+                        $handSize = count($hand);
+                        if ($handSize > 7) {
+                            return DiscardPhase::class;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Check win condition
+        $players = $this->game->getCollectionFromDb("SELECT player_id FROM player");
+        $playerCount = count($players);
+        
+        $winThreshold = match($playerCount) {
+            2, 3 => 8,
+            4, 5 => 6,
+            6 => 5,
+            default => 8,
+        };
+
+        foreach ($players as $player) {
+            $potatoes = $this->game->playerGoldenPotatoes->get($player['player_id']);
+            if ($potatoes >= $winThreshold) {
+                return EndScore::class;
+            }
+        }
+        
         $this->game->activeNextPlayer();
 
-        // Go to another gamestate
-        $gameEnd = false; // Here, we would detect if the game is over to make the appropriate transition
-        if ($gameEnd) {
-            return EndScore::class;
-        } else {
-            return PlayerTurn::class;
-        }
+        return PlayerTurn::class;
     }
 }

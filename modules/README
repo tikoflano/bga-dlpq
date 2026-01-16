@@ -1,7 +1,54 @@
-This directory is meant to hold PHP / js files for inclusion in your
-<gamename>.game.php / gamename.js if needed.
+This directory contains the modular source code for the game, organized by language and purpose.
 
-It is recommended to name your files starting with a trigram of your game name.
-For example if you have a class to manage pathfinding in the game
-Tobago, it will be called TBGPathFinding.php (and the class inside be
-called TBGPathFinding) to avoid potential namespace collisions.
+## Directory Structure
+
+### `/modules/src` - Frontend Source Files
+
+Contains TypeScript and SCSS source files that are compiled into the final game interface:
+
+- **`dondelaspapasqueman.ts`** - TypeScript source for the game UI (edit this file)
+- **`dondelaspapasqueman.scss`** - SCSS stylesheet source
+- **`dondelaspapasqueman.d.ts`** - TypeScript type definitions
+
+**Important:** These source files are compiled using Rollup and Sass. The compiled output goes to:
+
+- `modules/js/Game.js` (from TypeScript)
+- `dondelaspapasqueman.css` (from SCSS, in project root)
+
+Do NOT edit the compiled files directly - always edit the source files in `/modules/src`.
+
+### `/modules/js` - Compiled JavaScript Output
+
+Contains the compiled JavaScript output:
+
+- **`Game.js`** - Auto-generated from `modules/src/dondelaspapasqueman.ts`
+  - This file is automatically created by the build process
+  - Do not edit manually - changes will be overwritten
+
+### `/modules/php` - Backend PHP Files
+
+Contains PHP classes and modules for server-side game logic:
+
+- **`Game.php`** - Main game logic class
+- **`States/`** - Game state machine classes
+- Additional PHP utility classes as needed
+
+## Naming Conventions
+
+When adding new PHP or JavaScript utility files, it is recommended to name them starting with a trigram of your game name to avoid namespace collisions.
+
+For example, if you have a class to manage pathfinding in the game Tobago, it would be called:
+
+- `TBGPathFinding.php` (PHP file)
+- The class inside would be called `TBGPathFinding`
+
+For this game (DondeLasPapasQueman), you could use the trigram `DLP` or `DPQ`.
+
+## Build Process
+
+The frontend source files are compiled using:
+
+- **Rollup** - Bundles TypeScript to JavaScript (`modules/js/Game.js`)
+- **Sass** - Compiles SCSS to CSS (`dondelaspapasqueman.css`)
+
+Run `npm run build` to compile once, or `npm run watch` for automatic recompilation during development.

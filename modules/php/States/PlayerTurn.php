@@ -10,110 +10,292 @@ use Bga\GameFramework\States\PossibleAction;
 use Bga\GameFramework\UserException;
 use Bga\Games\DondeLasPapasQueman\Game;
 
-class PlayerTurn extends GameState
-{
-    function __construct(
-        protected Game $game,
-    ) {
-        parent::__construct($game,
+class PlayerTurn extends GameState {
+    function __construct(protected Game $game) {
+        parent::__construct(
+            $game,
             id: 10,
             type: StateType::ACTIVE_PLAYER,
-            description: clienttranslate('${actplayer} must play a card or pass'),
-            descriptionMyTurn: clienttranslate('${you} must play a card or pass'),
+            description: clienttranslate('${actplayer} must play a card or end turn'),
+            descriptionMyTurn: clienttranslate('${you} must play a card or end turn')
         );
     }
 
     /**
-     * Game state arguments, example content.
-     *
-     * This method returns some additional information that is very specific to the `PlayerTurn` game state.
+     * Called when entering this state
      */
-    public function getArgs(): array
-    {
-        // Get some values from the current game situation from the database.
+    public function onEnteringState(int $activePlayerId) {
+        $hand = $this->game->cards->getPlayerHand($activePlayerId);
+        $handSize = count($hand);
 
-        return [
-            "playableCardsIds" => [1, 2],
-        ];
-    }    
-
-    /**
-     * Player action, example content.
-     *
-     * In this scenario, each time a player plays a card, this method will be called. This method is called directly
-     * by the action trigger on the front side with `bgaPerformAction`.
-     *
-     * @throws UserException
-     */
-    #[PossibleAction]
-    public function actPlayCard(int $card_id, int $activePlayerId, array $args)
-    {
-        // check input values
-        $playableCardsIds = $args['playableCardsIds'];
-        if (!in_array($card_id, $playableCardsIds)) {
-            throw new UserException('Invalid card choice');
+        // If 0 cards: automatically draw 3, end turn
+        if ($handSize == 0) {
+            $this->game->cards->pickCards(3, "deck", $activePlayerId);
+            $this->notify->all("emptyHandDraw", clienttranslate('${player_name} has no cards and draws 3'), [
+                "player_id" => $activePlayerId,
+                "player_name" => $this->game->getPlayerNameById($activePlayerId),
+            ]);
+            // Mark that we should skip end-of-turn draw
+            $this->game->setGameStateValue("skip_draw_flag", 1);
+            return NextPlayer::class;
         }
 
-        // Add your game logic to play a card here.
-        $card_name = Game::$CARD_TYPES[$card_id]['card_name'];
+        // If 1 card: offer option to discard and draw 3
+        // This will be handled in getArgs() and actDiscardAndDraw()
 
-        // Notify all players about the card played.
-        $this->notify->all("cardPlayed", clienttranslate('${player_name} plays ${card_name}'), [
-            "player_id" => $activePlayerId,
-            "player_name" => $this->game->getPlayerNameById($activePlayerId), // remove this line if you uncomment notification decorator
-            "card_name" => $card_name, // remove this line if you uncomment notification decorator
-            "card_id" => $card_id,
-            "i18n" => ['card_name'], // remove this line if you uncomment notification decorator
-        ]);
-
-        // in this example, the player gains 1 points each time he plays a card
-        $this->playerScore->inc($activePlayerId, 1);
-
-        // at the end of the action, move to the next state
-        return NextPlayer::class;
+        return null; // Stay in this state
     }
 
     /**
-     * Player action, example content.
-     *
-     * In this scenario, each time a player pass, this method will be called. This method is called directly
-     * by the action trigger on the front side with `bgaPerformAction`.
+     * Game state arguments
+     */
+    public function getArgs(): array {
+        $activePlayerId = (int) $this->game->getCurrentPlayerId();
+        $hand = $this->game->cards->getPlayerHand($activePlayerId);
+        $handSize = count($hand);
+
+        $result = [
+            "playableCardsIds" => array_column($hand, "id"),
+            "handSize" => $handSize,
+            "canDiscardAndDraw" => false,
+        ];
+
+        // If 1 card at start of turn, offer discard and draw option
+        if ($handSize == 1) {
+            $result["canDiscardAndDraw"] = true;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Discard single card and draw 3, then end turn
      */
     #[PossibleAction]
-    public function actPass(int $activePlayerId)
-    {
-        // Notify all players about the choice to pass.
-        $this->notify->all("pass", clienttranslate('${player_name} passes'), [
+    public function actDiscardAndDraw(int $activePlayerId) {
+        $hand = $this->game->cards->getPlayerHand($activePlayerId);
+        if (count($hand) != 1) {
+            throw new UserException("You can only discard and draw when you have exactly 1 card");
+        }
+
+        $card = $hand[0];
+        $this->game->cards->moveCard($card["id"], "discard");
+
+        $this->game->cards->pickCards(3, "deck", $activePlayerId);
+
+        $this->notify->all("discardAndDraw", clienttranslate('${player_name} discards a card and draws 3'), [
             "player_id" => $activePlayerId,
-            "player_name" => $this->game->getPlayerNameById($activePlayerId), // remove this line if you uncomment notification decorator
+            "player_name" => $this->game->getPlayerNameById($activePlayerId),
+            "card_id" => $card["id"],
         ]);
 
-        // in this example, the player gains 1 energy each time he passes
-        $this->game->playerEnergy->inc($activePlayerId, 1);
-
-        // at the end of the action, move to the next state
+        // Mark that we should skip end-of-turn draw
+        $this->game->setGameStateValue("skip_draw_flag", 1);
         return NextPlayer::class;
     }
 
     /**
-     * This method is called each time it is the turn of a player who has quit the game (= "zombie" player).
-     * You can do whatever you want in order to make sure the turn of this player ends appropriately
-     * (ex: play a random card).
-     * 
-     * See more about Zombie Mode: https://en.doc.boardgamearena.com/Zombie_Mode
-     *
-     * Important: your zombie code will be called when the player leaves the game. This action is triggered
-     * from the main site and propagated to the gameserver from a server, not from a browser.
-     * As a consequence, there is no current player associated to this action. In your zombieTurn function,
-     * you must _never_ use `getCurrentPlayerId()` or `getCurrentPlayerName()`, 
-     * but use the $playerId passed in parameter and $this->game->getPlayerNameById($playerId) instead.
+     * Play a threesome (3 cards of same type/name or same value)
+     */
+    #[PossibleAction]
+    public function actPlayThreesome(array $card_ids, int $activePlayerId) {
+        if (count($card_ids) != 3) {
+            throw new UserException("You must play exactly 3 cards for a threesome");
+        }
+
+        $hand = $this->game->cards->getPlayerHand($activePlayerId);
+        $handCardIds = array_column($hand, "id");
+
+        foreach ($card_ids as $cardId) {
+            if (!in_array($cardId, $handCardIds)) {
+                throw new UserException("You can only play cards from your hand");
+            }
+        }
+
+        $cards = $this->game->cards->getCards($card_ids);
+
+        // Check if it's a type-based threesome (potato cards with same name)
+        $potatoCards = [];
+        $wildcards = [];
+        foreach ($cards as $card) {
+            if ($card["type"] == "potato") {
+                $decoded = Game::decodeCardTypeArg($card["type_arg"]);
+                $potatoCards[] = ["card" => $card, "name_index" => $decoded["name_index"]];
+            } elseif ($card["type"] == "wildcard") {
+                $wildcards[] = $card;
+            }
+        }
+
+        $goldenPotatoes = 0;
+        $isTypeBased = false;
+
+        // Check type-based threesome
+        if (count($potatoCards) + count($wildcards) == 3 && count($wildcards) <= 2) {
+            // All cards are potato or wildcard, at most 2 wildcards
+            if (count($potatoCards) > 0) {
+                $nameIndexes = array_column($potatoCards, "name_index");
+                $uniqueNames = array_unique($nameIndexes);
+                if (count($uniqueNames) == 1) {
+                    // All potato cards have same name
+                    $nameIndex = $uniqueNames[0];
+                    $isTypeBased = true;
+                    // Rewards: papa=1, papas duquesas=2, papas fritas=3
+                    $goldenPotatoes = match ($nameIndex) {
+                        1 => 1, // papa
+                        2 => 2, // papas duquesas
+                        3 => 3, // papas fritas
+                        default => 0,
+                    };
+                }
+            }
+        }
+
+        // Check value-based threesome (if not type-based)
+        if (!$isTypeBased) {
+            $values = [];
+            foreach ($cards as $card) {
+                if ($card["type"] == "wildcard") {
+                    throw new UserException("Wildcards cannot be used in value-based threesomes");
+                }
+                $decoded = Game::decodeCardTypeArg($card["type_arg"]);
+                $values[] = $decoded["value"];
+            }
+            $uniqueValues = array_unique($values);
+            if (count($uniqueValues) == 1) {
+                // All cards have same value
+                $goldenPotatoes = 1;
+            } else {
+                throw new UserException("Invalid threesome: cards must have same type/name or same value");
+            }
+        }
+
+        if ($goldenPotatoes == 0) {
+            throw new UserException("Invalid threesome");
+        }
+
+        // Move cards to discard
+        foreach ($cards as $card) {
+            $this->game->cards->moveCard($card["id"], "discard");
+        }
+
+        // Award golden potatoes
+        $this->game->playerGoldenPotatoes->inc($activePlayerId, $goldenPotatoes);
+
+        $threesomeType = $isTypeBased ? "type-based" : "value-based";
+        $this->notify->all(
+            "threesomePlayed",
+            clienttranslate(
+                '${player_name} plays a ${threesome_type} threesome and gains ${golden_potatoes} golden potatoes'
+            ),
+            [
+                "player_id" => $activePlayerId,
+                "player_name" => $this->game->getPlayerNameById($activePlayerId),
+                "threesome_type" => $threesomeType,
+                "golden_potatoes" => $goldenPotatoes,
+                "card_ids" => $card_ids,
+                "i18n" => ["threesome_type"],
+            ]
+        );
+
+        // Trigger reaction phase
+        $this->game->globals->set(
+            "reaction_data",
+            serialize(["type" => "threesome", "player_id" => $activePlayerId, "card_ids" => $card_ids])
+        );
+        return ReactionPhase::class;
+    }
+
+    /**
+     * Play a single card
+     */
+    #[PossibleAction]
+    public function actPlayCard(int $card_id, int $activePlayerId, array $args) {
+        $hand = $this->game->cards->getPlayerHand($activePlayerId);
+        $handCardIds = array_column($hand, "id");
+
+        if (!in_array($card_id, $handCardIds)) {
+            throw new UserException("You can only play cards from your hand");
+        }
+
+        $card = $this->game->cards->getCard($card_id);
+        if (!$card) {
+            throw new UserException("Card not found");
+        }
+
+        $decoded = Game::decodeCardTypeArg($card["type_arg"]);
+        $cardName = Game::getCardName($card["type"], $decoded["name_index"]);
+        $isAlarm = $decoded["isAlarm"];
+
+        // Move card to discard
+        $this->game->cards->moveCard($card_id, "discard");
+
+        // Notify all players
+        $this->notify->all("cardPlayed", clienttranslate('${player_name} plays ${card_name}'), [
+            "player_id" => $activePlayerId,
+            "player_name" => $this->game->getPlayerNameById($activePlayerId),
+            "card_name" => $cardName,
+            "card_id" => $card_id,
+            "is_alarm" => $isAlarm,
+            "i18n" => ["card_name"],
+        ]);
+
+        // Store card info for reaction phase
+        $this->game->globals->set(
+            "reaction_data",
+            serialize(["type" => "card", "player_id" => $activePlayerId, "card_id" => $card_id, "is_alarm" => $isAlarm])
+        );
+
+        // Trigger reaction phase
+        $nextState = ReactionPhase::class;
+
+        // If alarm card and not interrupted, end turn
+        // (We'll check this after reaction phase)
+        if ($isAlarm) {
+            $this->game->setGameStateValue("alarm_flag", 1); // Flag: alarm card played
+        }
+
+        return $nextState;
+    }
+
+    /**
+     * End turn explicitly
+     */
+    #[PossibleAction]
+    public function actEndTurn(int $activePlayerId) {
+        $this->notify->all("turnEnded", clienttranslate('${player_name} ends their turn'), [
+            "player_id" => $activePlayerId,
+            "player_name" => $this->game->getPlayerNameById($activePlayerId),
+        ]);
+
+        return NextPlayer::class;
+    }
+
+    /**
+     * Zombie player handling
      */
     function zombie(int $playerId) {
-        // Example of zombie level 0: return NextPlayer::class; or $this->actPass($playerId);
+        $hand = $this->game->cards->getPlayerHand($playerId);
+        $handSize = count($hand);
 
-        // Example of zombie level 1:
+        // If 0 cards: draw 3 and end
+        if ($handSize == 0) {
+            $this->game->cards->pickCards(3, "deck", $playerId);
+            $this->game->setGameStateValue("skip_draw_flag", 1);
+            return NextPlayer::class;
+        }
+
+        // If 1 card: discard and draw 3
+        if ($handSize == 1) {
+            return $this->actDiscardAndDraw($playerId);
+        }
+
+        // Otherwise: play a random card or end turn
         $args = $this->getArgs();
-        $zombieChoice = $this->getRandomZombieChoice($args['playableCardsIds']); // random choice over possible moves
-        return $this->actPlayCard($zombieChoice, $playerId, $args); // this function will return the transition to the next state
+        if (!empty($args["playableCardsIds"])) {
+            $zombieChoice = $this->getRandomZombieChoice($args["playableCardsIds"]);
+            return $this->actPlayCard($zombieChoice, $playerId, $args);
+        } else {
+            return $this->actEndTurn($playerId);
+        }
     }
 }
