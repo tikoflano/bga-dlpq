@@ -13,6 +13,8 @@ class Game {
         this.selectedCards = [];
         // Reaction phase timer
         this.reactionTimer = null;
+        // Latest discarded card (for display)
+        this.latestDiscardedCard = null;
         console.log("dondelaspapasqueman constructor");
         this.bga = bga;
     }
@@ -21,44 +23,31 @@ class Game {
         this.gamedatas = gamedatas;
         // Create game area structure
         this.bga.gameArea.getElement().insertAdjacentHTML("beforeend", `
-            <div id="player-tables"></div>
             <div id="hand-area"></div>
+            <div id="golden-potato-cards-area">
+                <h3>Golden Potatoes</h3>
+                <div id="golden-potato-cards"></div>
+            </div>
             <div id="common-area">
-                <div id="deck-area">Deck: <span id="deck-count">0</span></div>
-                <div id="discard-area">Discard: <span id="discard-count">0</span></div>
-                <div id="golden-potato-pile">Golden Potatoes: <span id="golden-potato-count">0</span></div>
+                <div id="deck-card" class="deck-card">
+                    <div class="card-back"></div>
+                    <div class="deck-count">0</div>
+                </div>
+                <div id="discard-card" class="discard-card">
+                    <div class="card-placeholder">Discard Pile</div>
+                </div>
             </div>
         `);
-        // Setting up player boards
-        Object.values(gamedatas.players).forEach((player) => {
-            const playerId = typeof player.id === 'string' ? parseInt(player.id, 10) : player.id;
-            // Golden potato counter
-            this.bga.playerPanels.getElement(playerId).insertAdjacentHTML("beforeend", `
-                <div id="golden-potato-counter-${player.id}"></div>
-            `);
-            const goldenPotatoCounter = new ebg.counter();
-            goldenPotatoCounter.create(`golden-potato-counter-${player.id}`, {
-                value: player.golden_potatoes || 0,
-                playerCounter: "golden_potatoes",
-                playerId: playerId,
-            });
-            // Player table
-            const playerTables = document.getElementById("player-tables");
-            if (playerTables) {
-                playerTables.insertAdjacentHTML("beforeend", `
-                <div id="player-table-${player.id}">
-                    <strong>${player.name}</strong>
-                    <div>Golden Potatoes: <span id="player-golden-potatoes-${player.id}">${player.golden_potatoes || 0}</span></div>
-                </div>
-            `);
-            }
-        });
         // Display hand
         this.updateHand(gamedatas.hand || []);
-        // Update deck and discard counts
-        this.updateDeckCount(gamedatas.deckCount || 0);
-        this.updateDiscardCount(gamedatas.discardCount || 0);
-        this.updateGoldenPotatoPileCount(gamedatas.goldenPotatoPileCount || 0);
+        // Update golden potato cards display
+        const currentPlayerId = this.bga.gameui.player_id;
+        const currentPlayer = gamedatas.players?.[currentPlayerId];
+        const goldenPotatoes = Number(currentPlayer?.golden_potatoes || currentPlayer?.score || 0);
+        this.updateGoldenPotatoCards(goldenPotatoes);
+        // Update deck and discard displays
+        this.updateDeckDisplay(gamedatas.deckCount || 0);
+        this.updateDiscardDisplay(null);
         // Setup game notifications
         this.setupNotifications();
         console.log("Ending game setup");
@@ -152,10 +141,12 @@ class Game {
             const cardDiv = document.createElement("div");
             cardDiv.className = "card";
             cardDiv.dataset.cardId = card.id.toString();
+            const cardName = this.getCardName(card);
+            const cardValue = this.getCardValue(card);
             cardDiv.innerHTML = `
                 <div class="card-type">${card.type}</div>
-                <div class="card-name">Card ${card.id}</div>
-                <div class="card-value">Value: ${this.getCardValue(card)}</div>
+                <div class="card-name">${cardName}</div>
+                <div class="card-value">Value: ${cardValue}</div>
             `;
             // Add click handler
             cardDiv.addEventListener("click", () => this.onCardClick(card.id));
@@ -166,28 +157,107 @@ class Game {
             handCards.appendChild(cardDiv);
         });
     }
+    /**
+     * Decode card_type_arg to get name_index, value, and isAlarm
+     * Format: name_index * 10000 + value * 100 + (isAlarm ? 1 : 0)
+     */
+    decodeCardTypeArg(typeArg) {
+        const isAlarm = typeArg % 100 === 1;
+        const value = Math.floor((typeArg % 10000) / 100);
+        const nameIndex = Math.floor(typeArg / 10000);
+        return { name_index: nameIndex, value, isAlarm };
+    }
+    /**
+     * Get card name by type and name_index
+     */
+    getCardName(card) {
+        const typeArg = card.type_arg || 0;
+        const decoded = this.decodeCardTypeArg(typeArg);
+        const nameIndex = decoded.name_index;
+        const cardNames = {
+            potato: {
+                1: _("papa"),
+                2: _("papas duquesas"),
+                3: _("papas fritas"),
+            },
+            action: {
+                1: _("No Poh"),
+                2: _("Te Dije Que No Poh"),
+            },
+            wildcard: {
+                1: _("Wildcard"),
+            },
+        };
+        return cardNames[card.type]?.[nameIndex] || _("Unknown Card");
+    }
     getCardValue(card) {
         // Decode card_type_arg to get value
         const typeArg = card.type_arg || 0;
-        const value = Math.floor((typeArg % 10000) / 100);
-        return value;
+        const decoded = this.decodeCardTypeArg(typeArg);
+        return decoded.value;
     }
-    updateDeckCount(count) {
-        const deckCountEl = document.getElementById("deck-count");
+    updateDeckDisplay(count) {
+        const deckCountEl = document.querySelector("#deck-card .deck-count");
         if (deckCountEl) {
             deckCountEl.textContent = count.toString();
         }
     }
-    updateDiscardCount(count) {
-        const discardCountEl = document.getElementById("discard-count");
-        if (discardCountEl) {
-            discardCountEl.textContent = count.toString();
+    updateDiscardDisplay(card) {
+        const discardCardEl = document.getElementById("discard-card");
+        if (!discardCardEl)
+            return;
+        if (card) {
+            this.latestDiscardedCard = card;
+            const cardName = this.getCardName(card);
+            const cardValue = this.getCardValue(card);
+            discardCardEl.innerHTML = `
+                <div class="card-type">${card.type}</div>
+                <div class="card-name">${cardName}</div>
+                <div class="card-value">Value: ${cardValue}</div>
+            `;
+            discardCardEl.classList.remove("empty");
+        }
+        else {
+            discardCardEl.innerHTML = '<div class="card-placeholder">Discard Pile</div>';
+            discardCardEl.classList.add("empty");
+            this.latestDiscardedCard = null;
         }
     }
-    updateGoldenPotatoPileCount(count) {
-        const goldenPotatoCountEl = document.getElementById("golden-potato-count");
-        if (goldenPotatoCountEl) {
-            goldenPotatoCountEl.textContent = count.toString();
+    /**
+     * Update golden potato cards display
+     * Cards are double-sided: one side shows 1, the other shows 2
+     * Display uses as many "2" cards as possible, then a "1" card if needed
+     */
+    updateGoldenPotatoCards(count) {
+        const cardsContainer = document.getElementById("golden-potato-cards");
+        if (!cardsContainer)
+            return;
+        cardsContainer.innerHTML = "";
+        if (count === 0) {
+            return;
+        }
+        // Calculate how many cards of each type to show
+        const cardsWith2 = Math.floor(count / 2);
+        const cardsWith1 = count % 2;
+        // Create cards showing "2" side
+        for (let i = 0; i < cardsWith2; i++) {
+            const cardDiv = document.createElement("div");
+            cardDiv.className = "golden-potato-card";
+            cardDiv.innerHTML = `
+                <div class="potato-value">2</div>
+                <div class="potato-label">Golden Potato</div>
+            `;
+            cardsContainer.appendChild(cardDiv);
+        }
+        // Create card showing "1" side if needed
+        if (cardsWith1 > 0) {
+            const cardDiv = document.createElement("div");
+            cardDiv.className = "golden-potato-card";
+            cardDiv.innerHTML = `
+                <div class="potato-value">1</div>
+                <div class="potato-label">Golden Potato</div>
+            `;
+            cardsContainer.appendChild(cardDiv);
         }
     }
     startReactionTimer(args) {
@@ -324,8 +394,17 @@ class Game {
     }
     async notif_cardPlayed(args) {
         console.log("Card played:", args);
-        // Update discard count
-        this.updateDiscardCount((this.gamedatas.discardCount || 0) + 1);
+        // Update deck display (deck count doesn't change when playing cards)
+        this.updateDeckDisplay(this.gamedatas.deckCount || 0);
+        // Update discard pile with the played card
+        if (args.card_type && args.card_type_arg !== undefined) {
+            const discardedCard = {
+                id: args.card_id,
+                type: args.card_type,
+                type_arg: args.card_type_arg,
+            };
+            this.updateDiscardDisplay(discardedCard);
+        }
         // Remove card from hand if it's current player's card
         if (this.gamedatas.hand) {
             this.gamedatas.hand = this.gamedatas.hand.filter((card) => card.id !== args.card_id);
@@ -334,8 +413,10 @@ class Game {
     }
     async notif_threesomePlayed(args) {
         console.log("Threesome played:", args);
-        // Update discard count
-        this.updateDiscardCount((this.gamedatas.discardCount || 0) + 3);
+        // Update deck display
+        this.updateDeckDisplay(Math.max(0, (this.gamedatas.deckCount || 0)));
+        // For threesome, we could show the last card or keep the previous discard
+        // For now, we'll keep the current discard display
         // Remove cards from hand
         if (this.gamedatas.hand) {
             this.gamedatas.hand = this.gamedatas.hand.filter((card) => !args.card_ids.includes(card.id));
@@ -345,6 +426,11 @@ class Game {
         if (this.gamedatas.players && this.gamedatas.players[args.player_id]) {
             this.gamedatas.players[args.player_id].golden_potatoes =
                 (this.gamedatas.players[args.player_id].golden_potatoes || 0) + args.golden_potatoes;
+            // Update golden potato cards display if it's the current player
+            if (args.player_id === this.bga.gameui.player_id) {
+                const newCount = this.gamedatas.players[args.player_id].golden_potatoes || 0;
+                this.updateGoldenPotatoCards(newCount);
+            }
         }
     }
     async notif_cardCancelled(args) {
@@ -356,12 +442,17 @@ class Game {
         // Threesome was cancelled, reverse golden potatoes
         if (this.gamedatas.players && this.gamedatas.players[args.target_player_id]) {
             this.gamedatas.players[args.target_player_id].golden_potatoes = Math.max(0, (this.gamedatas.players[args.target_player_id].golden_potatoes || 0) - 3);
+            // Update golden potato cards display if it's the current player
+            if (args.target_player_id === this.bga.gameui.player_id) {
+                const newCount = this.gamedatas.players[args.target_player_id].golden_potatoes || 0;
+                this.updateGoldenPotatoCards(newCount);
+            }
         }
     }
     async notif_cardDrawn(args) {
         console.log("Card drawn:", args);
-        // Update deck count
-        this.updateDeckCount(Math.max(0, (this.gamedatas.deckCount || 0) - 1));
+        // Update deck display
+        this.updateDeckDisplay(Math.max(0, (this.gamedatas.deckCount || 0) - 1));
         // Add card to hand if it's current player
         if (args.player_id == this.bga.gameui.player_id && this.gamedatas.hand) {
             // Card will be added by server, update hand display
@@ -370,8 +461,9 @@ class Game {
     }
     async notif_cardsDiscarded(args) {
         console.log("Cards discarded:", args);
-        // Update discard count
-        this.updateDiscardCount((this.gamedatas.discardCount || 0) + args.count);
+        // Update deck display
+        this.updateDeckDisplay(Math.max(0, (this.gamedatas.deckCount || 0)));
+        // Note: We don't update discard display here as we don't know which card was last
         // Remove cards from hand
         if (this.gamedatas.hand) {
             this.gamedatas.hand = this.gamedatas.hand.filter((card) => !args.card_ids.includes(card.id));
@@ -383,20 +475,20 @@ class Game {
     }
     async notif_emptyHandDraw(args) {
         console.log("Empty hand draw:", args);
-        // Update deck count
-        this.updateDeckCount(Math.max(0, (this.gamedatas.deckCount || 0) - 3));
+        // Update deck display
+        this.updateDeckDisplay(Math.max(0, (this.gamedatas.deckCount || 0) - 3));
     }
     async notif_discardAndDraw(args) {
         console.log("Discard and draw:", args);
-        // Update deck and discard counts
-        this.updateDeckCount(Math.max(0, (this.gamedatas.deckCount || 0) - 3));
-        this.updateDiscardCount((this.gamedatas.discardCount || 0) + 1);
+        // Update deck display
+        this.updateDeckDisplay(Math.max(0, (this.gamedatas.deckCount || 0) - 3));
     }
     async notif_deckReshuffled(args) {
         console.log("Deck reshuffled:", args);
-        // Deck was reshuffled, update counts
-        this.updateDeckCount(this.gamedatas.deckCount || 0);
-        this.updateDiscardCount(0);
+        // Deck was reshuffled, update display
+        this.updateDeckDisplay(this.gamedatas.deckCount || 0);
+        // Clear discard display when deck is reshuffled
+        this.updateDiscardDisplay(null);
     }
 }
 

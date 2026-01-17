@@ -193,6 +193,37 @@ Players can:
 - **discard**: Discard pile (face-up, visible to all)
 - **golden_potato_pile**: Common golden potato pile (unlimited, tracked)
 
+## UI Display
+
+### Deck Display
+
+- The deck is displayed as a **red card rectangle** (card back)
+- Shows a **counter** displaying the number of remaining cards in the deck
+- Positioned in the common game area
+
+### Discard Pile Display
+
+- The discard pile is displayed as a **card rectangle** showing the **latest played card**
+- Displays the card's type, name, and value (same format as hand cards)
+- When empty, shows a placeholder "Discard Pile" message
+- Positioned in the common game area next to the deck
+
+### Player Hand Display
+
+- Cards in the player's hand are displayed as **card rectangles**
+- Each card shows:
+  - Card type (potato/wildcard/action)
+  - Card name (e.g., "papa", "No Poh")
+  - Card value
+- Cards can be clicked to select/play them
+- Selected cards are highlighted with a green border
+
+### Scoring Display
+
+- Golden potatoes are tracked as the **player score**
+- Displayed in the BGA player panel (standard score display)
+- No separate "Golden Potatoes" counter is shown in the game area
+
 ## Deck Exhaustion
 
 - When deck runs out:

@@ -203,9 +203,10 @@ class ReactionPhase extends GameState {
 
         if ($data["type"] == "threesome") {
             // Cancel threesome - cards already in discard, but reverse golden potatoes
-            $this->game->playerGoldenPotatoes->inc($targetPlayerId, -3); // Assume max, adjust if needed
-            // Actually, we need to know how many were awarded - store this in reaction data
-            // For now, just notify
+            // Get the amount that was awarded (stored in reaction data or default to 3)
+            $goldenPotatoesAwarded = $data["golden_potatoes"] ?? 3;
+            // Reverse golden potatoes and update score
+            $this->game->updateGoldenPotatoes($targetPlayerId, -$goldenPotatoesAwarded);
             $this->notify->all(
                 "threesomeCancelled",
                 clienttranslate('${interrupting_player} cancels ${target_player}\'s threesome with ${interrupt_card}'),

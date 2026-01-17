@@ -187,8 +187,8 @@ class PlayerTurn extends GameState {
             $this->game->cards->moveCard($card["id"], "discard");
         }
 
-        // Award golden potatoes
-        $this->game->playerGoldenPotatoes->inc($activePlayerId, $goldenPotatoes);
+        // Award golden potatoes and update score
+        $this->game->updateGoldenPotatoes($activePlayerId, $goldenPotatoes);
 
         $threesomeType = $isTypeBased ? "type-based" : "value-based";
         $this->notify->all(
@@ -209,7 +209,12 @@ class PlayerTurn extends GameState {
         // Trigger reaction phase
         $this->game->globals->set(
             "reaction_data",
-            serialize(["type" => "threesome", "player_id" => $activePlayerId, "card_ids" => $card_ids])
+            serialize([
+                "type" => "threesome",
+                "player_id" => $activePlayerId,
+                "card_ids" => $card_ids,
+                "golden_potatoes" => $goldenPotatoes,
+            ])
         );
         return ReactionPhase::class;
     }
@@ -244,6 +249,8 @@ class PlayerTurn extends GameState {
             "player_name" => $this->game->getPlayerNameById($activePlayerId),
             "card_name" => $cardName,
             "card_id" => $card_id,
+            "card_type" => $card["type"],
+            "card_type_arg" => $card["type_arg"],
             "is_alarm" => $isAlarm,
             "i18n" => ["card_name"],
         ]);

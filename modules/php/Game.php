@@ -110,6 +110,17 @@ class Game extends \Bga\GameFramework\Table {
     }
 
     /**
+     * Update golden potatoes and sync the score
+     * This ensures the player's score always matches their golden potatoes count
+     */
+    public function updateGoldenPotatoes(int $playerId, int $delta): int {
+        $newValue = $this->playerGoldenPotatoes->inc($playerId, $delta);
+        // Sync score with golden potatoes
+        $this->playerScore->set($playerId, $newValue);
+        return $newValue;
+    }
+
+    /**
      * Decode card_type_arg to get name_index, value, and isAlarm
      * Format: name_index * 10000 + value * 100 + (isAlarm ? 1 : 0)
      */
@@ -244,6 +255,8 @@ class Game extends \Bga\GameFramework\Table {
 
         $this->playerEnergy->initDb($playerIds, initialValue: 2);
         $this->playerGoldenPotatoes->initDb($playerIds, initialValue: 0);
+        // Initialize scores to 0 (matching golden potatoes)
+        $this->playerScore->initDb($playerIds, initialValue: 0);
 
         // Set the colors of the players with HTML color code. The default below is red/green/blue/orange/brown. The
         // number of colors defined here must correspond to the maximum number of players allowed for the gams.

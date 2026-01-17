@@ -19,7 +19,8 @@
 - After editing `modules/src/dondelaspapasqueman.scss`
 - Before deploying to server (if src files were changed)
 
-### Note:
+### Important Notes:
 
+- **DO NOT use `rm` before rebuilding** - The build process automatically replaces the output files. Just run `npm run build` or `npm run build:ts` directly.
 - PHP files in `modules/php/` do NOT need building - they are used directly
 - Only TypeScript and SCSS source files need compilation
