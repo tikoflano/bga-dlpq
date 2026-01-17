@@ -41,11 +41,10 @@ class Game extends \Bga\GameFramework\Table {
     public function __construct() {
         parent::__construct();
         $this->initGameStateLabels([
-            10 => "skip_draw_flag",
-            11 => "reaction_data",
-            12 => "alarm_flag",
-            13 => "interrupt_played",
-            14 => "skip_next_player",
+            "skip_draw_flag" => 10,
+            "alarm_flag" => 12,
+            "interrupt_played" => 13,
+            "skip_next_player" => 14,
         ]);
 
         $this->playerEnergy = $this->counterFactory->createPlayerCounter("energy");
@@ -285,6 +284,14 @@ class Game extends \Bga\GameFramework\Table {
     protected function setupNewGame($players, $options = []) {
         $playerIds = array_keys($players);
         $playerCount = count($players);
+
+        // Initialize game state values FIRST, before other operations
+        // This ensures labels are registered before any state tries to use them
+        $this->setGameStateInitialValue("skip_draw_flag", 0);
+        $this->setGameStateInitialValue("alarm_flag", 0);
+        $this->setGameStateInitialValue("interrupt_played", 0);
+        $this->setGameStateInitialValue("skip_next_player", 0);
+        // Note: reaction_data is stored in globals, not game state values
 
         $this->playerEnergy->initDb($playerIds, initialValue: 2);
         $this->playerGoldenPotatoes->initDb($playerIds, initialValue: 0);
