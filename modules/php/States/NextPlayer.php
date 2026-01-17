@@ -92,6 +92,15 @@ class NextPlayer extends \Bga\GameFramework\States\GameState
             }
         }
         
+        // Check if next player should be skipped
+        $skipNextPlayer = $this->game->getGameStateValue("skip_next_player") == 1;
+        if ($skipNextPlayer) {
+            // Reset flag
+            $this->game->setGameStateValue("skip_next_player", 0);
+            // Skip to player after next
+            $this->game->activeNextPlayer(); // Skip first player
+        }
+        
         $this->game->activeNextPlayer();
 
         return PlayerTurn::class;

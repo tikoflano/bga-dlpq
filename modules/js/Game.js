@@ -71,6 +71,15 @@ class Game {
             case "DiscardPhase":
                 this.showDiscardPhase(args);
                 break;
+            case "TargetSelection":
+                this.showTargetSelection(args);
+                break;
+            case "CardSelection":
+                this.showCardSelection(args);
+                break;
+            case "CardNameSelection":
+                this.showCardNameSelection(args);
+                break;
         }
     }
     onLeavingState(stateName) {
@@ -81,6 +90,15 @@ class Game {
                 break;
             case "DiscardPhase":
                 this.hideDiscardPhase();
+                break;
+            case "TargetSelection":
+                this.hideTargetSelection();
+                break;
+            case "CardSelection":
+                this.hideCardSelection();
+                break;
+            case "CardNameSelection":
+                this.hideCardNameSelection();
                 break;
         }
     }
@@ -109,13 +127,13 @@ class Game {
                     // Add interrupt card buttons if player has them
                     if (args.players && args.players[this.bga.gameui.player_id]) {
                         const playerData = args.players[this.bga.gameui.player_id];
-                        if (playerData.hasNoPoh) {
-                            this.bga.statusBar.addActionButton(_("Play No Poh"), () => {
+                        if (playerData.hasNoDude) {
+                            this.bga.statusBar.addActionButton(_("Play No dude"), () => {
                                 this.bga.actions.performAction("actPlayNoPoh", {});
                             }, { color: "alert" });
                         }
-                        if (playerData.hasTeDijeQueNoPoh) {
-                            this.bga.statusBar.addActionButton(_("Play Te Dije Que No Poh"), () => {
+                        if (playerData.hasIToldYouNoDude) {
+                            this.bga.statusBar.addActionButton(_("Play I told you no dude"), () => {
                                 this.bga.actions.performAction("actPlayTeDijeQueNoPoh", {});
                             }, { color: "alert" });
                         }
@@ -160,6 +178,7 @@ class Game {
     /**
      * Decode card_type_arg to get name_index, value, and isAlarm
      * Format: name_index * 10000 + value * 100 + (isAlarm ? 1 : 0)
+     * Value range: 0-3 (potato cards always have value 0)
      */
     decodeCardTypeArg(typeArg) {
         const isAlarm = typeArg % 100 === 1;
@@ -176,13 +195,25 @@ class Game {
         const nameIndex = decoded.name_index;
         const cardNames = {
             potato: {
-                1: _("papa"),
-                2: _("papas duquesas"),
-                3: _("papas fritas"),
+                1: _("potato"),
+                2: _("duchesses potatoes"),
+                3: _("fried potatoes"),
             },
             action: {
-                1: _("No Poh"),
-                2: _("Te Dije Que No Poh"),
+                1: _("No dude"),
+                2: _("I told you no dude"),
+                3: _("Get off the pony"),
+                4: _("Lend me a buck"),
+                5: _("Runaway potatoes"),
+                6: _("Harry Potato"),
+                7: _("Pope Potato"),
+                8: _("Look ahead"),
+                9: _("The potato of the year"),
+                10: _("Potato of destiny"),
+                11: _("Potato Dawan"),
+                12: _("Jump to the side"),
+                13: _("Papageddon"),
+                14: _("Spider potato"),
             },
             wildcard: {
                 1: _("Wildcard"),
@@ -349,6 +380,197 @@ class Game {
             discardDiv.remove();
         }
     }
+    showTargetSelection(args) {
+        if (!this.bga.gameui.isCurrentPlayerActive())
+            return;
+        const container = document.getElementById("game_actions");
+        if (!container)
+            return;
+        // Remove any existing target selection UI
+        this.hideTargetSelection();
+        const targetDiv = document.createElement("div");
+        targetDiv.id = "target-selection-ui";
+        targetDiv.className = "target-selection-ui";
+        targetDiv.innerHTML = `
+      <div class="target-selection-title">${_("Select Target")}</div>
+      <div class="target-selection-players" id="target-selection-players"></div>
+      <button id="confirm-target" class="btn btn-primary" disabled>${_("Confirm")}</button>
+    `;
+        container.appendChild(targetDiv);
+        const playersDiv = document.getElementById("target-selection-players");
+        if (!playersDiv)
+            return;
+        const selectedTargets = [];
+        const targetCount = args.targetCount || 1;
+        if (args.selectablePlayers && Array.isArray(args.selectablePlayers)) {
+            args.selectablePlayers.forEach((player) => {
+                const playerDiv = document.createElement("div");
+                playerDiv.className = "target-player";
+                playerDiv.dataset.playerId = player.id.toString();
+                playerDiv.textContent = player.name;
+                playerDiv.addEventListener("click", () => {
+                    const playerId = player.id;
+                    const index = selectedTargets.indexOf(playerId);
+                    if (index > -1) {
+                        // Deselect
+                        playerDiv.classList.remove("selected");
+                        selectedTargets.splice(index, 1);
+                    }
+                    else {
+                        // Select (if we haven't reached the limit)
+                        if (selectedTargets.length < targetCount) {
+                            playerDiv.classList.add("selected");
+                            selectedTargets.push(playerId);
+                        }
+                    }
+                    // Enable/disable confirm button
+                    const confirmBtn = document.getElementById("confirm-target");
+                    if (confirmBtn) {
+                        confirmBtn.disabled = selectedTargets.length !== targetCount;
+                    }
+                });
+                playersDiv.appendChild(playerDiv);
+            });
+        }
+        // Confirm button handler
+        const confirmBtn = document.getElementById("confirm-target");
+        if (confirmBtn) {
+            confirmBtn.addEventListener("click", () => {
+                if (selectedTargets.length === targetCount) {
+                    this.bga.actions.performAction("actSelectTargets", {
+                        target_player_ids: selectedTargets,
+                    });
+                }
+            });
+        }
+    }
+    hideTargetSelection() {
+        const targetDiv = document.getElementById("target-selection-ui");
+        if (targetDiv) {
+            targetDiv.remove();
+        }
+    }
+    showCardSelection(args) {
+        if (!this.bga.gameui.isCurrentPlayerActive())
+            return;
+        const container = document.getElementById("game_actions");
+        if (!container)
+            return;
+        // Remove any existing card selection UI
+        this.hideCardSelection();
+        const cardDiv = document.createElement("div");
+        cardDiv.id = "card-selection-ui";
+        cardDiv.className = "card-selection-ui";
+        cardDiv.innerHTML = `
+      <div class="card-selection-title">${_("Select a card from ${target_name}'s hand").replace("${target_name}", args.targetPlayerName || "")}</div>
+      <div class="card-selection-cards" id="card-selection-cards"></div>
+    `;
+        container.appendChild(cardDiv);
+        const cardsDiv = document.getElementById("card-selection-cards");
+        if (!cardsDiv)
+            return;
+        // Show card backs (same visual for all)
+        if (args.cardBacks && Array.isArray(args.cardBacks)) {
+            args.cardBacks.forEach((cardBack) => {
+                const backDiv = document.createElement("div");
+                backDiv.className = "card-back";
+                backDiv.dataset.position = cardBack.position.toString();
+                backDiv.dataset.cardId = cardBack.card_id.toString();
+                // Show card back visual (red rectangle)
+                backDiv.style.width = "60px";
+                backDiv.style.height = "90px";
+                backDiv.style.backgroundColor = "#8B0000";
+                backDiv.style.border = "2px solid #000";
+                backDiv.style.borderRadius = "5px";
+                backDiv.style.cursor = "pointer";
+                backDiv.style.display = "inline-block";
+                backDiv.style.margin = "5px";
+                backDiv.addEventListener("click", () => {
+                    this.bga.actions.performAction("actSelectCard", {
+                        card_position: cardBack.position,
+                    });
+                });
+                cardsDiv.appendChild(backDiv);
+            });
+        }
+    }
+    hideCardSelection() {
+        const cardDiv = document.getElementById("card-selection-ui");
+        if (cardDiv) {
+            cardDiv.remove();
+        }
+    }
+    showCardNameSelection(args) {
+        if (!this.bga.gameui.isCurrentPlayerActive())
+            return;
+        const container = document.getElementById("game_actions");
+        if (!container)
+            return;
+        // Remove any existing card name selection UI
+        this.hideCardNameSelection();
+        const nameDiv = document.createElement("div");
+        nameDiv.id = "card-name-selection-ui";
+        nameDiv.className = "card-name-selection-ui";
+        nameDiv.innerHTML = `
+      <div class="card-name-selection-title">${_("Name a card")}</div>
+      <select id="card-type-select" class="card-type-select">
+        <option value="">${_("Select card type...")}</option>
+      </select>
+      <select id="card-name-select" class="card-name-select" disabled>
+        <option value="">${_("Select card name...")}</option>
+      </select>
+      <button id="confirm-card-name" class="btn btn-primary" disabled>${_("Confirm")}</button>
+    `;
+        const cardTypeSelect = nameDiv.querySelector("#card-type-select");
+        const cardNameSelect = nameDiv.querySelector("#card-name-select");
+        const confirmBtn = nameDiv.querySelector("#confirm-card-name");
+        // Populate card types
+        if (args.cardNames) {
+            Object.keys(args.cardNames).forEach((cardType) => {
+                const option = document.createElement("option");
+                option.value = cardType;
+                option.textContent = cardType.charAt(0).toUpperCase() + cardType.slice(1);
+                cardTypeSelect.appendChild(option);
+            });
+        }
+        // When card type is selected, populate card names
+        cardTypeSelect.addEventListener("change", () => {
+            const selectedType = cardTypeSelect.value;
+            cardNameSelect.innerHTML = '<option value="">' + _("Select card name...") + "</option>";
+            cardNameSelect.disabled = !selectedType;
+            if (selectedType && args.cardNames[selectedType]) {
+                Object.keys(args.cardNames[selectedType]).forEach((nameIndex) => {
+                    const option = document.createElement("option");
+                    option.value = nameIndex;
+                    option.textContent = args.cardNames[selectedType][nameIndex];
+                    cardNameSelect.appendChild(option);
+                });
+            }
+            confirmBtn.disabled = !selectedType || !cardNameSelect.value;
+        });
+        // When card name is selected, enable confirm button
+        cardNameSelect.addEventListener("change", () => {
+            confirmBtn.disabled = !cardTypeSelect.value || !cardNameSelect.value;
+        });
+        // Confirm button handler
+        confirmBtn.addEventListener("click", () => {
+            const cardType = cardTypeSelect.value;
+            const nameIndex = parseInt(cardNameSelect.value);
+            if (cardType && nameIndex) {
+                this.bga.actions.performAction("actSelectCardName", {
+                    card_type: cardType,
+                    name_index: nameIndex,
+                });
+            }
+        });
+        container.appendChild(nameDiv);
+    }
+    hideCardNameSelection() {
+        const nameDiv = document.getElementById("card-name-selection-ui");
+        if (nameDiv) {
+            nameDiv.remove();
+        }
+    }
     ///////////////////////////////////////////////////
     //// Player's action
     onCardClick(card_id) {
@@ -371,7 +593,7 @@ class Game {
         this.updateHand(this.gamedatas.hand || []);
         // Update action buttons
         const currentState = this.gamedatas.gamestate.name;
-        this.bga.gameui.onUpdateActionButtons(currentState, this.gamedatas.gamestate.args || null);
+        this.onUpdateActionButtons(currentState, this.gamedatas.gamestate.args || null);
         // If 3 cards selected, offer to play as single card or wait for threesome button
         // For now, just play as single card if clicked again
         if (this.selectedCards.length != 3) {
@@ -489,6 +711,75 @@ class Game {
         this.updateDeckDisplay(this.gamedatas.deckCount || 0);
         // Clear discard display when deck is reshuffled
         this.updateDiscardDisplay(null);
+    }
+    // Action card notifications
+    async notif_getOffThePony(args) {
+        console.log("Get off the pony:", args);
+        // Update golden potatoes display
+        this.updateGoldenPotatoCards(this.gamedatas.players?.[this.bga.gameui.player_id]?.golden_potatoes || 0);
+    }
+    async notif_lendMeABuck(args) {
+        console.log("Lend me a buck:", args);
+        // Card was stolen, hand will be updated via getAllDatas refresh
+    }
+    async notif_runawayPotatoes(args) {
+        console.log("Runaway potatoes:", args);
+        // Update deck count
+        this.updateDeckDisplay(this.gamedatas.deckCount || 0);
+    }
+    async notif_harryPotato(args) {
+        console.log("Harry Potato:", args);
+        // Player drew cards, hand will be updated via getAllDatas refresh
+        this.updateDeckDisplay(this.gamedatas.deckCount || 0);
+    }
+    async notif_popePotato(args) {
+        console.log("Pope Potato:", args);
+        // Card was stolen, hand will be updated via getAllDatas refresh
+    }
+    async notif_popePotatoFail(args) {
+        console.log("Pope Potato failed:", args);
+    }
+    async notif_lookAhead(args) {
+        console.log("Look ahead:", args);
+        // Update golden potatoes display
+        this.updateGoldenPotatoCards(this.gamedatas.players?.[this.bga.gameui.player_id]?.golden_potatoes || 0);
+    }
+    async notif_potatoOfTheYear(args) {
+        console.log("Potato of the year:", args);
+        // Update golden potatoes display
+        this.updateGoldenPotatoCards(this.gamedatas.players?.[this.bga.gameui.player_id]?.golden_potatoes || 0);
+    }
+    async notif_potatoOfDestiny(args) {
+        console.log("Potato of destiny:", args);
+        // Target's hand changed, will be updated via getAllDatas refresh
+        this.updateDeckDisplay(this.gamedatas.deckCount || 0);
+    }
+    async notif_potatoDawan(args) {
+        console.log("Potato Dawan:", args);
+        // Card was stolen, hand will be updated via getAllDatas refresh
+    }
+    async notif_jumpToTheSide(args) {
+        console.log("Jump to the side:", args);
+        // Player drew a card, hand will be updated via getAllDatas refresh
+        this.updateDeckDisplay(this.gamedatas.deckCount || 0);
+    }
+    async notif_papageddonOrder(args) {
+        console.log("Papageddon order reversed:", args);
+    }
+    async notif_papageddonSteal(args) {
+        console.log("Papageddon steal:", args);
+        // Card was stolen, hand will be updated via getAllDatas refresh
+    }
+    async notif_spiderPotato(args) {
+        console.log("Spider potato:", args);
+        // Hands were exchanged, will be updated via getAllDatas refresh
+    }
+    async notif_cardSelected(args) {
+        console.log("Card selected:", args);
+        // Card was selected from hand (revealed)
+    }
+    async notif_cardNameSelected(args) {
+        console.log("Card name selected:", args);
     }
 }
 

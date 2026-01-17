@@ -9,6 +9,7 @@ use Bga\GameFramework\States\GameState;
 use Bga\GameFramework\States\PossibleAction;
 use Bga\GameFramework\UserException;
 use Bga\Games\DondeLasPapasQueman\Game;
+use Bga\Games\DondeLasPapasQueman\States\ActionResolution;
 
 class ReactionPhase extends GameState {
     function __construct(protected Game $game) {
@@ -63,7 +64,7 @@ class ReactionPhase extends GameState {
 
             foreach ($hand as $card) {
                 if ($card["type"] == "action") {
-                    $decoded = Game::decodeCardTypeArg($card["type_arg"]);
+                    $decoded = Game::decodeCardTypeArg((int) $card["type_arg"]);
                     if ($decoded["name_index"] == 1) {
                         $hasNoPoh = true;
                     } elseif ($decoded["name_index"] == 2) {
@@ -77,8 +78,8 @@ class ReactionPhase extends GameState {
             $currentPlayerId = $this->game->getActivePlayerId();
             if ($currentPlayerId !== null && $player["player_id"] == $currentPlayerId) {
                 $result["players"][$player["player_id"]] = [
-                    "hasNoPoh" => $hasNoPoh,
-                    "hasTeDijeQueNoPoh" => $hasTeDijeQueNoPoh,
+                    "hasNoDude" => $hasNoPoh,
+                    "hasIToldYouNoDude" => $hasTeDijeQueNoPoh,
                 ];
             }
         }
@@ -87,7 +88,7 @@ class ReactionPhase extends GameState {
     }
 
     /**
-     * Play "No Poh" interrupt card
+     * Play "No dude" interrupt card
      */
     #[PossibleAction]
     public function actPlayNoPoh(int $playerId) {
@@ -96,14 +97,14 @@ class ReactionPhase extends GameState {
             throw new UserException("Another player has already reacted");
         }
 
-        // Check if player has "No Poh" card
+        // Check if player has "No dude" card
         $hand = $this->game->cards->getPlayerHand($playerId);
         $noPohCard = null;
         foreach ($hand as $card) {
             if ($card["type"] == "action") {
-                $decoded = Game::decodeCardTypeArg($card["type_arg"]);
+                $decoded = Game::decodeCardTypeArg((int) $card["type_arg"]);
                 if ($decoded["name_index"] == 1) {
-                    // No Poh
+                    // No dude
                     $noPohCard = $card;
                     break;
                 }
@@ -111,25 +112,25 @@ class ReactionPhase extends GameState {
         }
 
         if (!$noPohCard) {
-            throw new UserException('You do not have a "No Poh" card');
+            throw new UserException('You do not have a "No dude" card');
         }
 
-        // Check if "No Poh" can cancel the target
+        // Check if "No dude" can cancel the target
         $reactionData = $this->game->globals->get("reaction_data");
         $data = unserialize($reactionData);
 
         $canCancel = false;
         if ($data["type"] == "threesome") {
-            // "No Poh" cannot cancel threesomes
-            throw new UserException('"No Poh" cannot cancel threesomes');
+            // "No dude" cannot cancel threesomes
+            throw new UserException('"No dude" cannot cancel threesomes');
         } elseif ($data["type"] == "card") {
-            // Check if target is "Te Dije Que No Poh" or another "No Poh"
+            // Check if target is "I told you no dude" or another "No dude"
             $targetCard = $this->game->cards->getCard($data["card_id"]);
             if ($targetCard && $targetCard["type"] == "action") {
-                $targetDecoded = Game::decodeCardTypeArg($targetCard["type_arg"]);
+                $targetDecoded = Game::decodeCardTypeArg((int) $targetCard["type_arg"]);
                 if ($targetDecoded["name_index"] == 2) {
-                    // Target is "Te Dije Que No Poh" - cannot cancel
-                    throw new UserException('"No Poh" cannot cancel "Te Dije Que No Poh"');
+                    // Target is "I told you no dude" - cannot cancel
+                    throw new UserException('"No dude" cannot cancel "I told you no dude"');
                 }
             }
             $canCancel = true;
@@ -138,11 +139,11 @@ class ReactionPhase extends GameState {
         // Mark that interrupt was played
         $this->game->setGameStateValue("interrupt_played", 1);
 
-        // Move "No Poh" to discard
+        // Move "No dude" to discard
         $this->game->cards->moveCard($noPohCard["id"], "discard");
 
         // Cancel the target action
-        $this->cancelTarget($data, $playerId, "No Poh");
+        $this->cancelTarget($data, $playerId, "No dude");
 
         // If cancelled card was an interrupt, we need to handle the chain
         // For now, just return to PlayerTurn
@@ -150,7 +151,7 @@ class ReactionPhase extends GameState {
     }
 
     /**
-     * Play "Te Dije Que No Poh" interrupt card
+     * Play "I told you no dude" interrupt card
      */
     #[PossibleAction]
     public function actPlayTeDijeQueNoPoh(int $playerId) {
@@ -159,14 +160,14 @@ class ReactionPhase extends GameState {
             throw new UserException("Another player has already reacted");
         }
 
-        // Check if player has "Te Dije Que No Poh" card
+        // Check if player has "I told you no dude" card
         $hand = $this->game->cards->getPlayerHand($playerId);
         $teDijeCard = null;
         foreach ($hand as $card) {
             if ($card["type"] == "action") {
-                $decoded = Game::decodeCardTypeArg($card["type_arg"]);
+                $decoded = Game::decodeCardTypeArg((int) $card["type_arg"]);
                 if ($decoded["name_index"] == 2) {
-                    // Te Dije Que No Poh
+                    // I told you no dude
                     $teDijeCard = $card;
                     break;
                 }
@@ -174,21 +175,21 @@ class ReactionPhase extends GameState {
         }
 
         if (!$teDijeCard) {
-            throw new UserException('You do not have a "Te Dije Que No Poh" card');
+            throw new UserException('You do not have an "I told you no dude" card');
         }
 
-        // "Te Dije Que No Poh" can cancel everything
+        // "I told you no dude" can cancel everything
         $reactionData = $this->game->globals->get("reaction_data");
         $data = unserialize($reactionData);
 
         // Mark that interrupt was played
         $this->game->setGameStateValue("interrupt_played", 1);
 
-        // Move "Te Dije Que No Poh" to discard
+        // Move "I told you no dude" to discard
         $this->game->cards->moveCard($teDijeCard["id"], "discard");
 
         // Cancel the target action
-        $this->cancelTarget($data, $playerId, "Te Dije Que No Poh");
+        $this->cancelTarget($data, $playerId, "I told you no dude");
 
         return PlayerTurn::class;
     }
@@ -249,8 +250,27 @@ class ReactionPhase extends GameState {
         $interruptPlayed = $this->game->getGameStateValue("interrupt_played") == 1;
         $alarmFlag = $this->game->getGameStateValue("alarm_flag") == 1;
 
-        // If no interrupt was played and it was an alarm card, end turn
-        if (!$interruptPlayed && $alarmFlag) {
+        // Check if an action card was played (not just a regular card)
+        $reactionData = $this->game->globals->get("reaction_data");
+        $data = unserialize($reactionData);
+        $isActionCard = ($data["type"] ?? "") == "action_card";
+
+        if ($interruptPlayed) {
+            // Card was interrupted, return to PlayerTurn
+            $this->game->setGameStateValue("alarm_flag", 0);
+            $this->game->setGameStateValue("interrupt_played", 0);
+            return PlayerTurn::class;
+        }
+
+        // If action card was played, resolve its effect
+        if ($isActionCard) {
+            $this->game->setGameStateValue("alarm_flag", 0);
+            $this->game->setGameStateValue("interrupt_played", 0);
+            return ActionResolution::class;
+        }
+
+        // Regular card - if alarm card, end turn
+        if ($alarmFlag) {
             $this->game->setGameStateValue("alarm_flag", 0);
             return NextPlayer::class;
         }

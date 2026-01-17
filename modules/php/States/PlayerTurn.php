@@ -9,6 +9,7 @@ use Bga\GameFramework\States\GameState;
 use Bga\GameFramework\States\PossibleAction;
 use Bga\GameFramework\UserException;
 use Bga\Games\DondeLasPapasQueman\Game;
+use Bga\Games\DondeLasPapasQueman\States\TargetSelection;
 
 class PlayerTurn extends GameState {
     function __construct(protected Game $game) {
@@ -128,7 +129,7 @@ class PlayerTurn extends GameState {
         $wildcards = [];
         foreach ($cards as $card) {
             if ($card["type"] == "potato") {
-                $decoded = Game::decodeCardTypeArg($card["type_arg"]);
+                $decoded = Game::decodeCardTypeArg((int) $card["type_arg"]);
                 $potatoCards[] = ["card" => $card, "name_index" => $decoded["name_index"]];
             } elseif ($card["type"] == "wildcard") {
                 $wildcards[] = $card;
@@ -148,11 +149,11 @@ class PlayerTurn extends GameState {
                     // All potato cards have same name
                     $nameIndex = $uniqueNames[0];
                     $isTypeBased = true;
-                    // Rewards: papa=1, papas duquesas=2, papas fritas=3
+                    // Rewards: potato=1, duchesses potatoes=2, fried potatoes=3
                     $goldenPotatoes = match ($nameIndex) {
-                        1 => 1, // papa
-                        2 => 2, // papas duquesas
-                        3 => 3, // papas fritas
+                        1 => 1, // potato
+                        2 => 2, // duchesses potatoes
+                        3 => 3, // fried potatoes
                         default => 0,
                     };
                 }
@@ -166,7 +167,7 @@ class PlayerTurn extends GameState {
                 if ($card["type"] == "wildcard") {
                     throw new UserException("Wildcards cannot be used in value-based threesomes");
                 }
-                $decoded = Game::decodeCardTypeArg($card["type_arg"]);
+                $decoded = Game::decodeCardTypeArg((int) $card["type_arg"]);
                 $values[] = $decoded["value"];
             }
             $uniqueValues = array_unique($values);
@@ -236,9 +237,10 @@ class PlayerTurn extends GameState {
             throw new UserException("Card not found");
         }
 
-        $decoded = Game::decodeCardTypeArg($card["type_arg"]);
+        $decoded = Game::decodeCardTypeArg((int) $card["type_arg"]);
         $cardName = Game::getCardName($card["type"], $decoded["name_index"]);
         $isAlarm = $decoded["isAlarm"];
+        $nameIndex = $decoded["name_index"];
 
         // Move card to discard
         $this->game->cards->moveCard($card_id, "discard");
@@ -255,22 +257,54 @@ class PlayerTurn extends GameState {
             "i18n" => ["card_name"],
         ]);
 
-        // Store card info for reaction phase
-        $this->game->globals->set(
-            "reaction_data",
-            serialize(["type" => "card", "player_id" => $activePlayerId, "card_id" => $card_id, "is_alarm" => $isAlarm])
-        );
-
-        // Trigger reaction phase
-        $nextState = ReactionPhase::class;
-
-        // If alarm card and not interrupted, end turn
-        // (We'll check this after reaction phase)
-        if ($isAlarm) {
-            $this->game->setGameStateValue("alarm_flag", 1); // Flag: alarm card played
+        // Check if this is an action card that requires target selection
+        $targetRequired = 0;
+        if ($card["type"] == "action") {
+            $targetRequired = Game::actionCardRequiresTarget($nameIndex);
         }
 
-        return $nextState;
+        if ($targetRequired > 0) {
+            // Store card info for target selection and action resolution
+            $actionCardData = [
+                "type" => "action",
+                "player_id" => $activePlayerId,
+                "card_id" => $card_id,
+                "card_name" => $cardName,
+                "name_index" => $nameIndex,
+                "value" => $decoded["value"],
+                "is_alarm" => $isAlarm,
+            ];
+            $this->game->globals->set("action_card_data", serialize($actionCardData));
+
+            // Also store in reaction_data for reaction phase (after target selection)
+            $this->game->globals->set(
+                "reaction_data",
+                serialize(["type" => "action_card", "player_id" => $activePlayerId, "card_id" => $card_id, "is_alarm" => $isAlarm])
+            );
+
+            // If alarm card, set flag
+            if ($isAlarm) {
+                $this->game->setGameStateValue("alarm_flag", 1);
+            }
+
+            // Transition to target selection
+            return TargetSelection::class;
+        } else {
+            // Store card info for reaction phase
+            $this->game->globals->set(
+                "reaction_data",
+                serialize(["type" => "card", "player_id" => $activePlayerId, "card_id" => $card_id, "is_alarm" => $isAlarm])
+            );
+
+            // If alarm card and not interrupted, end turn
+            // (We'll check this after reaction phase)
+            if ($isAlarm) {
+                $this->game->setGameStateValue("alarm_flag", 1); // Flag: alarm card played
+            }
+
+            // Trigger reaction phase
+            return ReactionPhase::class;
+        }
     }
 
     /**

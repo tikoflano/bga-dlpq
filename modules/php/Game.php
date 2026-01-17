@@ -45,6 +45,7 @@ class Game extends \Bga\GameFramework\Table {
             11 => "reaction_data",
             12 => "alarm_flag",
             13 => "interrupt_played",
+            14 => "skip_next_player",
         ]);
 
         $this->playerEnergy = $this->counterFactory->createPlayerCounter("energy");
@@ -55,30 +56,37 @@ class Game extends \Bga\GameFramework\Table {
 
         // Card types: type stored in card_type, name stored in card_type_arg
         // card_type values: 'potato', 'wildcard', 'action'
-        // For potato cards, card_type_arg stores the name index: 1='papa', 2='papas duquesas', 3='papas fritas'
-        // For action cards, card_type_arg stores the name index: 1='No Poh', 2='Te Dije Que No Poh', etc.
-        // value and isAlarm stored in card_type_arg structure (we'll use JSON or separate fields)
-        // For now, we'll store: card_type_arg = name_index, and use globals or additional fields for value/isAlarm
-        // Actually, BGA Deck uses card_type_arg as int, so we need to encode: name_index * 1000 + value * 10 + isAlarm
-        // Or better: use card_type_arg for name index, and store value/isAlarm in a custom way
-        // Let's use a simpler approach: card_type_arg encodes: name_index (0-999), value (0-99), isAlarm (0-1)
-        // Format: name_index * 10000 + value * 100 + isAlarm
-        // But that's complex. Let's use card_type_arg for name index and add helper methods
-
+        // For potato cards, card_type_arg stores the name index: 1='potato', 2='duchesses potatoes', 3='fried potatoes'
+        // For action cards, card_type_arg stores the name index: 1='No dude', 2='I told you no dude', etc.
+        //
         // Card data structure: card_type_arg encodes name_index, value, and isAlarm
         // Format: name_index * 10000 + value * 100 + (isAlarm ? 1 : 0)
-        // This allows: name_index 0-999, value 0-99, isAlarm 0-1
+        // - name_index: 0-999 (identifies specific card name within type)
+        // - value: 0-3 (card value, potato cards always have value 0)
+        // - isAlarm: 0-1 (boolean flag for alarm cards)
         self::$CARD_TYPES = [
             // Helper: get card name by type and type_arg
             "names" => [
                 "potato" => [
-                    1 => clienttranslate("papa"),
-                    2 => clienttranslate("papas duquesas"),
-                    3 => clienttranslate("papas fritas"),
+                    1 => clienttranslate("potato"),
+                    2 => clienttranslate("duchesses potatoes"),
+                    3 => clienttranslate("fried potatoes"),
                 ],
                 "action" => [
-                    1 => clienttranslate("No Poh"),
-                    2 => clienttranslate("Te Dije Que No Poh"),
+                    1 => clienttranslate("No dude"),
+                    2 => clienttranslate("I told you no dude"),
+                    3 => clienttranslate("Get off the pony"),
+                    4 => clienttranslate("Lend me a buck"),
+                    5 => clienttranslate("Runaway potatoes"),
+                    6 => clienttranslate("Harry Potato"),
+                    7 => clienttranslate("Pope Potato"),
+                    8 => clienttranslate("Look ahead"),
+                    9 => clienttranslate("The potato of the year"),
+                    10 => clienttranslate("Potato of destiny"),
+                    11 => clienttranslate("Potato Dawan"),
+                    12 => clienttranslate("Jump to the side"),
+                    13 => clienttranslate("Papageddon"),
+                    14 => clienttranslate("Spider potato"),
                 ],
                 "wildcard" => [
                     1 => clienttranslate("Wildcard"),
@@ -110,6 +118,25 @@ class Game extends \Bga\GameFramework\Table {
     }
 
     /**
+     * Check if an action card requires target selection
+     * Returns: false if no target, 1 for single target, 2 for multiple targets
+     */
+    public static function actionCardRequiresTarget(int $nameIndex): int {
+        // Cards that require single target
+        $singleTargetCards = [3, 4, 7, 8, 10, 11]; // Get off the pony, Lend me a buck, Pope Potato, Look ahead, Potato of destiny, Potato Dawan
+        // Cards that require multiple targets
+        $multipleTargetCards = [14]; // Spider potato (2 targets)
+
+        if (in_array($nameIndex, $multipleTargetCards)) {
+            return 2;
+        }
+        if (in_array($nameIndex, $singleTargetCards)) {
+            return 1;
+        }
+        return 0;
+    }
+
+    /**
      * Update golden potatoes and sync the score
      * This ensures the player's score always matches their golden potatoes count
      */
@@ -123,6 +150,7 @@ class Game extends \Bga\GameFramework\Table {
     /**
      * Decode card_type_arg to get name_index, value, and isAlarm
      * Format: name_index * 10000 + value * 100 + (isAlarm ? 1 : 0)
+     * Value range: 0-3 (potato cards always have value 0)
      */
     public static function decodeCardTypeArg(int $typeArg): array {
         $isAlarm = $typeArg % 100 == 1;
@@ -133,8 +161,13 @@ class Game extends \Bga\GameFramework\Table {
 
     /**
      * Encode name_index, value, and isAlarm into card_type_arg
+     * Value must be between 0-3 (potato cards always have value 0)
      */
     public static function encodeCardTypeArg(int $nameIndex, int $value, bool $isAlarm): int {
+        // Validate value range
+        if ($value < 0 || $value > 3) {
+            throw new \Exception("Card value must be between 0 and 3, got: " . $value);
+        }
         return $nameIndex * 10000 + $value * 100 + ($isAlarm ? 1 : 0);
     }
 
@@ -294,49 +327,50 @@ class Game extends \Bga\GameFramework\Table {
         $this->createNextPlayerTable($playerIds);
 
         // Create cards
-        // Total: 103 cards
-        // Distribution (example - adjust as needed):
-        // - Potato cards: papa (30), papas duquesas (25), papas fritas (20) = 75
-        // - Wildcards: 15
-        // - Action cards: No Poh (10), Te Dije Que No Poh (3) = 13
-        // Total: 75 + 15 + 13 = 103
+        // Total: 106 cards
+        // Distribution:
+        // - Potato cards: potato (16), duchesses potatoes (12), fried potatoes (5) = 33
+        // - Wildcards: 3
+        // - Action cards: No dude (10), I told you no dude (3), Get off the pony (5),
+        //   Lend me a buck (10), Runaway potatoes (3), Harry Potato (10), Pope Potato (3),
+        //   Look ahead (3), The potato of the year (5), Potato of destiny (3),
+        //   Potato Dawan (3), Jump to the side (3), Papageddon (3), Spider potato (3) = 70
+        // Total: 33 + 3 + 70 = 106
 
         $cardsToCreate = [];
 
         // Create potato cards
-        // papa (name_index=1): 30 cards with various values
-        for ($i = 0; $i < 30; $i++) {
-            $value = rand(1, 10); // Random value 1-10 for now
+        // Potato cards always have value 0
+        // potato (name_index=1): 16 cards
+        for ($i = 0; $i < 16; $i++) {
             $cardsToCreate[] = [
                 "type" => "potato",
-                "type_arg" => self::encodeCardTypeArg(1, $value, false),
+                "type_arg" => self::encodeCardTypeArg(1, 0, false),
                 "nbr" => 1,
             ];
         }
 
-        // papas duquesas (name_index=2): 25 cards
-        for ($i = 0; $i < 25; $i++) {
-            $value = rand(1, 10);
+        // duchesses potatoes (name_index=2): 12 cards
+        for ($i = 0; $i < 12; $i++) {
             $cardsToCreate[] = [
                 "type" => "potato",
-                "type_arg" => self::encodeCardTypeArg(2, $value, false),
+                "type_arg" => self::encodeCardTypeArg(2, 0, false),
                 "nbr" => 1,
             ];
         }
 
-        // papas fritas (name_index=3): 20 cards
-        for ($i = 0; $i < 20; $i++) {
-            $value = rand(1, 10);
+        // fried potatoes (name_index=3): 5 cards
+        for ($i = 0; $i < 5; $i++) {
             $cardsToCreate[] = [
                 "type" => "potato",
-                "type_arg" => self::encodeCardTypeArg(3, $value, false),
+                "type_arg" => self::encodeCardTypeArg(3, 0, false),
                 "nbr" => 1,
             ];
         }
 
-        // Wildcards: 15 cards
-        for ($i = 0; $i < 15; $i++) {
-            $value = rand(1, 10);
+        // Wildcards: 3 cards with values 0-3
+        for ($i = 0; $i < 3; $i++) {
+            $value = rand(0, 3); // Value range: 0-3
             $cardsToCreate[] = [
                 "type" => "wildcard",
                 "type_arg" => self::encodeCardTypeArg(1, $value, false),
@@ -344,7 +378,7 @@ class Game extends \Bga\GameFramework\Table {
             ];
         }
 
-        // No Poh (name_index=1): 10 cards
+        // No dude (name_index=1): 10 cards
         for ($i = 0; $i < 10; $i++) {
             $cardsToCreate[] = [
                 "type" => "action",
@@ -353,11 +387,119 @@ class Game extends \Bga\GameFramework\Table {
             ];
         }
 
-        // Te Dije Que No Poh (name_index=2): 3 cards
+        // I told you no dude (name_index=2): 3 cards
         for ($i = 0; $i < 3; $i++) {
             $cardsToCreate[] = [
                 "type" => "action",
                 "type_arg" => self::encodeCardTypeArg(2, 0, false),
+                "nbr" => 1,
+            ];
+        }
+
+        // Get off the pony (name_index=3, value=2, isAlarm=true): 5 cards
+        for ($i = 0; $i < 5; $i++) {
+            $cardsToCreate[] = [
+                "type" => "action",
+                "type_arg" => self::encodeCardTypeArg(3, 2, true),
+                "nbr" => 1,
+            ];
+        }
+
+        // Lend me a buck (name_index=4, value=1, isAlarm=false): 10 cards
+        for ($i = 0; $i < 10; $i++) {
+            $cardsToCreate[] = [
+                "type" => "action",
+                "type_arg" => self::encodeCardTypeArg(4, 1, false),
+                "nbr" => 1,
+            ];
+        }
+
+        // Runaway potatoes (name_index=5, value=3, isAlarm=false): 3 cards
+        for ($i = 0; $i < 3; $i++) {
+            $cardsToCreate[] = [
+                "type" => "action",
+                "type_arg" => self::encodeCardTypeArg(5, 3, false),
+                "nbr" => 1,
+            ];
+        }
+
+        // Harry Potato (name_index=6, value=1, isAlarm=true): 10 cards
+        for ($i = 0; $i < 10; $i++) {
+            $cardsToCreate[] = [
+                "type" => "action",
+                "type_arg" => self::encodeCardTypeArg(6, 1, true),
+                "nbr" => 1,
+            ];
+        }
+
+        // Pope Potato (name_index=7, value=3, isAlarm=false): 3 cards
+        for ($i = 0; $i < 3; $i++) {
+            $cardsToCreate[] = [
+                "type" => "action",
+                "type_arg" => self::encodeCardTypeArg(7, 3, false),
+                "nbr" => 1,
+            ];
+        }
+
+        // Look ahead (name_index=8, value=3, isAlarm=true): 3 cards
+        for ($i = 0; $i < 3; $i++) {
+            $cardsToCreate[] = [
+                "type" => "action",
+                "type_arg" => self::encodeCardTypeArg(8, 3, true),
+                "nbr" => 1,
+            ];
+        }
+
+        // The potato of the year (name_index=9, value=2, isAlarm=false): 5 cards
+        for ($i = 0; $i < 5; $i++) {
+            $cardsToCreate[] = [
+                "type" => "action",
+                "type_arg" => self::encodeCardTypeArg(9, 2, false),
+                "nbr" => 1,
+            ];
+        }
+
+        // Potato of destiny (name_index=10, value=3, isAlarm=false): 3 cards
+        for ($i = 0; $i < 3; $i++) {
+            $cardsToCreate[] = [
+                "type" => "action",
+                "type_arg" => self::encodeCardTypeArg(10, 3, false),
+                "nbr" => 1,
+            ];
+        }
+
+        // Potato Dawan (name_index=11, value=3, isAlarm=false): 3 cards
+        for ($i = 0; $i < 3; $i++) {
+            $cardsToCreate[] = [
+                "type" => "action",
+                "type_arg" => self::encodeCardTypeArg(11, 3, false),
+                "nbr" => 1,
+            ];
+        }
+
+        // Jump to the side (name_index=12, value=3, isAlarm=true): 3 cards
+        for ($i = 0; $i < 3; $i++) {
+            $cardsToCreate[] = [
+                "type" => "action",
+                "type_arg" => self::encodeCardTypeArg(12, 3, true),
+                "nbr" => 1,
+            ];
+        }
+
+        // Papageddon (name_index=13, value=3, isAlarm=true): 3 cards
+        for ($i = 0; $i < 3; $i++) {
+            $cardsToCreate[] = [
+                "type" => "action",
+                "type_arg" => self::encodeCardTypeArg(13, 3, true),
+                "nbr" => 1,
+            ];
+        }
+
+        // Spider potato (name_index=14, value=3, isAlarm=false): 3 cards
+        for ($i = 0; $i < 3; $i++) {
+            $cardsToCreate[] = [
+                "type" => "action",
+                "type_arg" => self::encodeCardTypeArg(14, 3, false),
                 "nbr" => 1,
             ];
         }
