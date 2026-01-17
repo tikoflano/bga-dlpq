@@ -73,7 +73,7 @@ class Game {
                 if (args.canDiscardAndDraw) {
                     this.bga.statusBar.addActionButton(_("Discard and Draw 3"), () => {
                         this.bga.actions.performAction("actDiscardAndDraw", {});
-                    }, { color: "blue" });
+                    }, { color: "primary" });
                 }
                 break;
             case "ReactionPhase":
@@ -101,7 +101,7 @@ class Game {
             switch (stateName) {
                 case "PlayerTurn":
                     // Clear previous buttons
-                    this.bga.statusBar.clear();
+                    this.bga.statusBar.removeActionButtons();
                     // Add "End Turn" button
                     this.bga.statusBar.addActionButton(_("End Turn"), () => {
                         this.bga.actions.performAction("actEndTurn", {});
@@ -123,12 +123,12 @@ class Game {
                         if (playerData.hasNoPoh) {
                             this.bga.statusBar.addActionButton(_("Play No Poh"), () => {
                                 this.bga.actions.performAction("actPlayNoPoh", {});
-                            }, { color: "red" });
+                            }, { color: "alert" });
                         }
                         if (playerData.hasTeDijeQueNoPoh) {
                             this.bga.statusBar.addActionButton(_("Play Te Dije Que No Poh"), () => {
                                 this.bga.actions.performAction("actPlayTeDijeQueNoPoh", {});
-                            }, { color: "red" });
+                            }, { color: "alert" });
                         }
                     }
                     break;
@@ -300,7 +300,8 @@ class Game {
         // Update UI
         this.updateHand(this.gamedatas.hand || []);
         // Update action buttons
-        this.bga.gameui.onUpdateActionButtons();
+        const currentState = this.gamedatas.gamestate.name;
+        this.bga.gameui.onUpdateActionButtons(currentState, this.gamedatas.gamestate.args || null);
         // If 3 cards selected, offer to play as single card or wait for threesome button
         // For now, just play as single card if clicked again
         if (this.selectedCards.length != 3) {
@@ -363,8 +364,8 @@ class Game {
         this.updateDeckCount(Math.max(0, (this.gamedatas.deckCount || 0) - 1));
         // Add card to hand if it's current player
         if (args.player_id == this.bga.gameui.player_id && this.gamedatas.hand) {
-            // Card will be added by server, just refresh
-            this.bga.gameui.refreshPage();
+            // Card will be added by server, update hand display
+            this.updateHand(this.gamedatas.hand);
         }
     }
     async notif_cardsDiscarded(args) {

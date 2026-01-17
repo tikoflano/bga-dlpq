@@ -151,7 +151,7 @@ class Game extends \Bga\GameFramework\Table {
 
         $maxPotatoes = 0;
         foreach ($players as $player) {
-            $potatoes = $this->playerGoldenPotatoes->get($player["player_id"]);
+            $potatoes = $this->playerGoldenPotatoes->get((int) $player["player_id"]);
             if ($potatoes > $maxPotatoes) {
                 $maxPotatoes = $potatoes;
             }
@@ -201,7 +201,13 @@ class Game extends \Bga\GameFramework\Table {
         $result = [];
 
         // WARNING: We must only return information visible by the current player.
-        $current_player_id = (int) $this->getCurrentPlayerId();
+        // Use bReturnNullIfNotLogged to handle cases during setup when no player is logged in
+        $current_player_id = $this->getCurrentPlayerId(true);
+        if ($current_player_id === null) {
+            $current_player_id = 0; // Default to 0 if no player is logged in (during setup)
+        } else {
+            $current_player_id = (int) $current_player_id;
+        }
 
         // Get information about players.
         // NOTE: you can retrieve some extra field you added for "player" table in `dbmodel.sql` if you need it.
@@ -211,8 +217,10 @@ class Game extends \Bga\GameFramework\Table {
         $this->playerEnergy->fillResult($result);
         $this->playerGoldenPotatoes->fillResult($result);
 
-        // Get current player's hand
-        $result["hand"] = $this->cards->getPlayerHand($current_player_id);
+        // Get current player's hand (empty array if no current player)
+        // Use array_values() to ensure it's a numeric array, not an associative array (which becomes an object in JSON)
+        $hand = $current_player_id > 0 ? $this->cards->getPlayerHand($current_player_id) : [];
+        $result["hand"] = array_values($hand);
 
         // Get deck count (visible to all)
         $result["deckCount"] = $this->cards->countCardInLocation("deck");
@@ -267,6 +275,10 @@ class Game extends \Bga\GameFramework\Table {
 
         $this->reattributeColorsBasedOnPreferences($players, $gameinfos["player_colors"]);
         $this->reloadPlayersBasicInfos();
+
+        // Create the player order table - this must be done before activating the first player
+        // createNextPlayerTable expects an array of player IDs, not the full player data
+        $this->createNextPlayerTable($playerIds);
 
         // Create cards
         // Total: 103 cards
@@ -356,10 +368,9 @@ class Game extends \Bga\GameFramework\Table {
         // $this->tableStats->init('table_teststat1', 0);
         // $this->playerStats->init('player_teststat1', 0);
 
-        // Activate first player once everything has been initialized and ready.
+        // Activate the first player - this must be called before transitioning to an ACTIVE_PLAYER state
+        // activeNextPlayer() is safe to call during setup as it just sets the active player in the state machine
         $this->activeNextPlayer();
-
-        return PlayerTurn::class;
     }
 
     /**

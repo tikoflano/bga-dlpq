@@ -28,7 +28,17 @@ class DiscardPhase extends GameState
      */
     public function getArgs(): array
     {
-        $activePlayerId = (int) $this->game->getCurrentPlayerId();
+        $activePlayerId = $this->game->getActivePlayerId();
+        if ($activePlayerId === null || $activePlayerId === '') {
+            // During setup or if no active player, return empty args
+            return [
+                "hand" => [],
+                "handSize" => 0,
+                "cardsToDiscard" => 0,
+                "playableCardsIds" => [],
+            ];
+        }
+        $activePlayerId = (int) $activePlayerId;
         $hand = $this->game->cards->getPlayerHand($activePlayerId);
         $handSize = count($hand);
         $cardsToDiscard = max(0, $handSize - 7);

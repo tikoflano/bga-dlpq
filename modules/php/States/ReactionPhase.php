@@ -73,7 +73,9 @@ class ReactionPhase extends GameState {
             }
 
             // Only show if current player (for their own hand)
-            if ($player["player_id"] == $this->game->getCurrentPlayerId()) {
+            // Use getActivePlayerId() with null check for MULTIPLE_ACTIVE_PLAYER states
+            $currentPlayerId = $this->game->getActivePlayerId();
+            if ($currentPlayerId !== null && $player["player_id"] == $currentPlayerId) {
                 $result["players"][$player["player_id"]] = [
                     "hasNoPoh" => $hasNoPoh,
                     "hasTeDijeQueNoPoh" => $hasTeDijeQueNoPoh,

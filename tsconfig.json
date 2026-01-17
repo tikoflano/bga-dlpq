@@ -6,7 +6,8 @@
     "lib": ["dom", "esnext"],
     "sourceMap": false,
     "rootDir": "modules/src",
-    "types": []
+    "types": [],
+    "noEmitOnError": true
   },
   "include": [
     "bga-framework.d.ts",

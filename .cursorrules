@@ -1,0 +1,25 @@
+# Cursor Rules for DondeLasPapasQueman BGA Game
+
+## Build Process
+
+**IMPORTANT**: After making changes to files in `modules/src/` (TypeScript or SCSS), you MUST run the build command to generate the compiled files:
+
+- `modules/js/Game.js` (from `modules/src/dondelaspapasqueman.ts`)
+- `dondelaspapasqueman.css` (from `modules/src/dondelaspapasqueman.scss`)
+
+### Build Commands:
+
+- `npm run build` - Builds both TypeScript and SCSS
+- `npm run build:ts` - Builds only TypeScript
+- `npm run build:scss` - Builds only SCSS
+
+### When to Build:
+
+- After editing `modules/src/dondelaspapasqueman.ts`
+- After editing `modules/src/dondelaspapasqueman.scss`
+- Before deploying to server (if src files were changed)
+
+### Note:
+
+- PHP files in `modules/php/` do NOT need building - they are used directly
+- Only TypeScript and SCSS source files need compilation

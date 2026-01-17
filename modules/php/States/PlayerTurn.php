@@ -14,7 +14,7 @@ class PlayerTurn extends GameState {
     function __construct(protected Game $game) {
         parent::__construct(
             $game,
-            id: 10,
+            id: 2,
             type: StateType::ACTIVE_PLAYER,
             description: clienttranslate('${actplayer} must play a card or end turn'),
             descriptionMyTurn: clienttranslate('${you} must play a card or end turn')
@@ -50,7 +50,16 @@ class PlayerTurn extends GameState {
      * Game state arguments
      */
     public function getArgs(): array {
-        $activePlayerId = (int) $this->game->getCurrentPlayerId();
+        $activePlayerId = $this->game->getActivePlayerId();
+        if ($activePlayerId === null || $activePlayerId === '') {
+            // During setup or if no active player, return empty args
+            return [
+                "playableCardsIds" => [],
+                "handSize" => 0,
+                "canDiscardAndDraw" => false,
+            ];
+        }
+        $activePlayerId = (int) $activePlayerId;
         $hand = $this->game->cards->getPlayerHand($activePlayerId);
         $handSize = count($hand);
 

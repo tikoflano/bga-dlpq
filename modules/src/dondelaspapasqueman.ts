@@ -8,6 +8,9 @@
  * -----
  */
 
+/// <reference path="../../bga-framework.d.ts" />
+/// <reference path="./dondelaspapasqueman.d.ts" />
+
 class Game {
   public bga: Bga<DondeLasPapasQuemanGamedatas>;
   private gamedatas: DondeLasPapasQuemanGamedatas;
@@ -42,7 +45,7 @@ class Game {
     );
 
     // Setting up player boards
-    Object.values(gamedatas.players).forEach((player) => {
+    Object.values(gamedatas.players).forEach((player: DondeLasPapasQuemanPlayer) => {
       const playerId = typeof player.id === 'string' ? parseInt(player.id, 10) : player.id;
       // Golden potato counter
       this.bga.playerPanels.getElement(playerId).insertAdjacentHTML(
@@ -102,7 +105,7 @@ class Game {
             () => {
               this.bga.actions.performAction("actDiscardAndDraw", {});
             },
-            { color: "blue" },
+            { color: "primary" },
           );
         }
         break;
@@ -138,7 +141,7 @@ class Game {
       switch (stateName) {
         case "PlayerTurn":
           // Clear previous buttons
-          this.bga.statusBar.clear();
+          this.bga.statusBar.removeActionButtons();
 
           // Add "End Turn" button
           this.bga.statusBar.addActionButton(
@@ -174,7 +177,7 @@ class Game {
                 () => {
                   this.bga.actions.performAction("actPlayNoPoh", {});
                 },
-                { color: "red" },
+                { color: "alert" },
               );
             }
             if (playerData.hasTeDijeQueNoPoh) {
@@ -183,7 +186,7 @@ class Game {
                 () => {
                   this.bga.actions.performAction("actPlayTeDijeQueNoPoh", {});
                 },
-                { color: "red" },
+                { color: "alert" },
               );
             }
           }
@@ -378,7 +381,8 @@ class Game {
     this.updateHand(this.gamedatas.hand || []);
 
     // Update action buttons
-    this.bga.gameui.onUpdateActionButtons();
+    const currentState = this.gamedatas.gamestate.name;
+    this.bga.gameui.onUpdateActionButtons(currentState, this.gamedatas.gamestate.args || null);
 
     // If 3 cards selected, offer to play as single card or wait for threesome button
     // For now, just play as single card if clicked again
@@ -457,8 +461,8 @@ class Game {
 
     // Add card to hand if it's current player
     if (args.player_id == this.bga.gameui.player_id && this.gamedatas.hand) {
-      // Card will be added by server, just refresh
-      this.bga.gameui.refreshPage();
+      // Card will be added by server, update hand display
+      this.updateHand(this.gamedatas.hand);
     }
   }
 
