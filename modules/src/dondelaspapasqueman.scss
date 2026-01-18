@@ -91,6 +91,19 @@
 		box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.3);
 	}
 
+	&.interrupt-card {
+		border: 3px solid #ff6b6b !important;
+		box-shadow: 0 0 10px rgba(255, 107, 107, 0.5) !important;
+		animation: pulse-interrupt 2s ease-in-out infinite;
+		background-color: #fff5f5;
+
+		&:hover {
+			transform: translateY(-8px);
+			box-shadow: 0 0 15px rgba(255, 107, 107, 0.8) !important;
+			border-color: #ff5252 !important;
+		}
+	}
+
 	.card-type {
 		font-size: 10px;
 		font-weight: bold;
@@ -115,6 +128,16 @@
 		color: #555;
 		text-align: center;
 		margin-top: 5px;
+	}
+}
+
+/* Interrupt card animation */
+@keyframes pulse-interrupt {
+	0%, 100% {
+		box-shadow: 0 0 10px rgba(255, 107, 107, 0.5);
+	}
+	50% {
+		box-shadow: 0 0 20px rgba(255, 107, 107, 0.8);
 	}
 }
 

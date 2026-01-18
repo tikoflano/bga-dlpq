@@ -35,6 +35,20 @@ class ReactionPhase extends GameState {
         // Set a flag to track if any interrupt was played
         $this->game->setGameStateValue("interrupt_played", 0); // 0 = no interrupt, 1 = interrupt played
 
+        // In MULTIPLE_ACTIVE_PLAYER state, we need to explicitly set which players are active
+        // All players EXCEPT the one who played the card can react
+        $activePlayers = [];
+        foreach ($players as $player) {
+            $playerId = (int) $player["player_id"];
+            if ($playerId != $activePlayerId) {
+                $activePlayers[] = $playerId;
+            }
+        }
+
+        // Set all other players as multiactive (they can react)
+        // The third parameter (true) means players NOT in the list will be made inactive
+        $this->game->gamestate->setPlayersMultiactive($activePlayers, "", true);
+
         return null;
     }
 
@@ -73,15 +87,13 @@ class ReactionPhase extends GameState {
                 }
             }
 
-            // Only show if current player (for their own hand)
-            // Use getActivePlayerId() with null check for MULTIPLE_ACTIVE_PLAYER states
-            $currentPlayerId = $this->game->getActivePlayerId();
-            if ($currentPlayerId !== null && $player["player_id"] == $currentPlayerId) {
-                $result["players"][$player["player_id"]] = [
-                    "hasNoDude" => $hasNoPoh,
-                    "hasIToldYouNoDude" => $hasTeDijeQueNoPoh,
-                ];
-            }
+            // In MULTIPLE_ACTIVE_PLAYER state, all players are active
+            // Show interrupt card info for all players (they'll only see their own)
+            $playerId = (int) $player["player_id"];
+            $result["players"][$playerId] = [
+                "hasNoDude" => $hasNoPoh,
+                "hasIToldYouNoDude" => $hasTeDijeQueNoPoh,
+            ];
         }
 
         return $result;
@@ -142,6 +154,18 @@ class ReactionPhase extends GameState {
         // Move "No dude" to discard
         $this->game->cards->moveCard($noPohCard["id"], "discard");
 
+        // Notify all players that the interrupt card was played (so frontend can remove it from hand)
+        $this->notify->all("cardPlayed", clienttranslate('${player_name} plays ${card_name}'), [
+            "player_id" => $playerId,
+            "player_name" => $this->game->getPlayerNameById($playerId),
+            "card_name" => "No dude",
+            "card_id" => $noPohCard["id"],
+            "card_type" => $noPohCard["type"],
+            "card_type_arg" => $noPohCard["type_arg"],
+            "is_alarm" => false,
+            "i18n" => ["card_name"],
+        ]);
+
         // Cancel the target action
         $this->cancelTarget($data, $playerId, "No dude");
 
@@ -187,6 +211,18 @@ class ReactionPhase extends GameState {
 
         // Move "I told you no dude" to discard
         $this->game->cards->moveCard($teDijeCard["id"], "discard");
+
+        // Notify all players that the interrupt card was played (so frontend can remove it from hand)
+        $this->notify->all("cardPlayed", clienttranslate('${player_name} plays ${card_name}'), [
+            "player_id" => $playerId,
+            "player_name" => $this->game->getPlayerNameById($playerId),
+            "card_name" => "I told you no dude",
+            "card_id" => $teDijeCard["id"],
+            "card_type" => $teDijeCard["type"],
+            "card_type_arg" => $teDijeCard["type_arg"],
+            "is_alarm" => false,
+            "i18n" => ["card_name"],
+        ]);
 
         // Cancel the target action
         $this->cancelTarget($data, $playerId, "I told you no dude");
@@ -276,6 +312,47 @@ class ReactionPhase extends GameState {
         }
 
         // Otherwise, return to PlayerTurn to continue
+        return null;
+    }
+
+    /**
+     * Skip reaction (player chooses not to react)
+     */
+    #[PossibleAction]
+    public function actSkipReaction() {
+        // Get the current player who is making this action
+        // In MULTIPLE_ACTIVE_PLAYER states, use getCurrentPlayerId() to get the player making the request
+        $playerId = (int) $this->game->getCurrentPlayerId();
+
+        // Determine next state using the same logic as onLeavingState()
+        // This ensures a single, consistent transition path
+        $interruptPlayed = $this->game->getGameStateValue("interrupt_played") == 1;
+        $alarmFlag = $this->game->getGameStateValue("alarm_flag") == 1;
+        $reactionData = $this->game->globals->get("reaction_data");
+        $data = unserialize($reactionData);
+        $isActionCard = ($data["type"] ?? "") == "action_card";
+
+        $nextState = "";
+        if ($interruptPlayed) {
+            // Reset flags before transitioning
+            $this->game->setGameStateValue("alarm_flag", 0);
+            $this->game->setGameStateValue("interrupt_played", 0);
+            $nextState = PlayerTurn::class;
+        } elseif ($isActionCard) {
+            $this->game->setGameStateValue("alarm_flag", 0);
+            $this->game->setGameStateValue("interrupt_played", 0);
+            $nextState = ActionResolution::class;
+        } elseif ($alarmFlag) {
+            $this->game->setGameStateValue("alarm_flag", 0);
+            $nextState = NextPlayer::class;
+        } else {
+            $nextState = PlayerTurn::class;
+        }
+
+        // Make player inactive and transition if this is the last active player
+        // setPlayerNonMultiactive will only transition if this is the last active player
+        $this->game->gamestate->setPlayerNonMultiactive($playerId, $nextState);
+
         return null;
     }
 

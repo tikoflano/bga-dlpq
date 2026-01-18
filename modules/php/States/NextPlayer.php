@@ -41,6 +41,8 @@ class NextPlayer extends \Bga\GameFramework\States\GameState
                     "player_id" => $activePlayerId,
                     "player_name" => $this->game->getPlayerNameById($activePlayerId),
                     "card_id" => $drawnCard['id'],
+                    "card_type" => $drawnCard['type'],
+                    "card_type_arg" => $drawnCard['type_arg'],
                 ]);
 
                 // Check hand size
@@ -64,6 +66,14 @@ class NextPlayer extends \Bga\GameFramework\States\GameState
                     // Try drawing again
                     $drawnCard = $this->game->cards->pickCard('deck', $activePlayerId);
                     if ($drawnCard) {
+                        $this->game->notify->all("cardDrawn", clienttranslate('${player_name} draws a card'), [
+                            "player_id" => $activePlayerId,
+                            "player_name" => $this->game->getPlayerNameById($activePlayerId),
+                            "card_id" => $drawnCard['id'],
+                            "card_type" => $drawnCard['type'],
+                            "card_type_arg" => $drawnCard['type_arg'],
+                        ]);
+                        
                         $hand = $this->game->cards->getPlayerHand($activePlayerId);
                         $handSize = count($hand);
                         if ($handSize > 7) {
@@ -86,7 +96,7 @@ class NextPlayer extends \Bga\GameFramework\States\GameState
         };
 
         foreach ($players as $player) {
-            $potatoes = $this->game->playerGoldenPotatoes->get($player['player_id']);
+            $potatoes = $this->game->playerGoldenPotatoes->get((int) $player['player_id']);
             if ($potatoes >= $winThreshold) {
                 return EndScore::class;
             }

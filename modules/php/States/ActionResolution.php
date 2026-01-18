@@ -37,15 +37,21 @@ class ActionResolution extends GameState
         $cardData = unserialize($actionCardData);
         $nameIndex = $cardData["name_index"] ?? 0;
         $activePlayerId = $cardData["player_id"] ?? $activePlayerId;
+        $cardId = $cardData["card_id"] ?? 0;
 
         // Check if card was interrupted
         $interruptPlayed = $this->game->getGameStateValue("interrupt_played") == 1;
         
         if ($interruptPlayed) {
-            // Card was interrupted, don't resolve effect
+            // Card was interrupted, return card to hand (it was never moved to discard)
             // Clear action card data
             $this->game->globals->set("action_card_data", "");
             return PlayerTurn::class;
+        }
+
+        // Now that reaction phase is complete and card wasn't interrupted, move it to discard
+        if ($cardId > 0) {
+            $this->game->cards->moveCard($cardId, "discard");
         }
 
         // Resolve action card effect based on name_index

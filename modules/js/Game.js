@@ -11,10 +11,14 @@ class Game {
     constructor(bga) {
         // Selected cards for threesome
         this.selectedCards = [];
+        // Selected targets for target selection
+        this.selectedTargets = [];
         // Reaction phase timer
         this.reactionTimer = null;
         // Latest discarded card (for display)
         this.latestDiscardedCard = null;
+        // Reaction phase args (for highlighting interrupt cards)
+        this.reactionPhaseArgs = null;
         console.log("dondelaspapasqueman constructor");
         this.bga = bga;
     }
@@ -59,23 +63,45 @@ class Game {
         switch (stateName) {
             case "PlayerTurn":
                 this.selectedCards = [];
-                if (args.canDiscardAndDraw) {
-                    this.bga.statusBar.addActionButton(_("Discard and Draw 3"), () => {
-                        this.bga.actions.performAction("actDiscardAndDraw", {});
-                    }, { color: "primary" });
+                // Clear reaction phase args and update hand to remove highlighting
+                this.reactionPhaseArgs = null;
+                if (this.gamedatas.hand) {
+                    this.updateHand(this.gamedatas.hand);
+                }
+                // Only show buttons for the active player
+                if (this.bga.gameui.isCurrentPlayerActive()) {
+                    // Clear previous buttons
+                    this.bga.statusBar.removeActionButtons();
+                    // Add "End Turn" button
+                    this.bga.statusBar.addActionButton(_("End Turn"), () => {
+                        this.bga.actions.performAction("actEndTurn", {});
+                    }, { color: "secondary" });
+                    if (args.canDiscardAndDraw) {
+                        this.bga.statusBar.addActionButton(_("Discard and Draw 3"), () => {
+                            this.bga.actions.performAction("actDiscardAndDraw", {});
+                        }, { color: "primary" });
+                    }
                 }
                 break;
             case "ReactionPhase":
                 this.startReactionTimer(args);
                 break;
+            case "ActionResolution":
+                // Clear reaction phase args and update hand to remove highlighting
+                this.reactionPhaseArgs = null;
+                if (this.gamedatas.hand) {
+                    this.updateHand(this.gamedatas.hand);
+                }
+                break;
             case "DiscardPhase":
                 this.showDiscardPhase(args);
                 break;
             case "TargetSelection":
-                this.showTargetSelection(args);
+                // Target selection buttons are handled in onUpdateActionButtons
                 break;
             case "CardSelection":
-                this.showCardSelection(args);
+                // Args might be nested in args.args
+                this.showCardSelection(args.args || args);
                 break;
             case "CardNameSelection":
                 this.showCardNameSelection(args);
@@ -87,11 +113,18 @@ class Game {
         switch (stateName) {
             case "ReactionPhase":
                 this.stopReactionTimer();
+                this.reactionPhaseArgs = null;
+                // Update hand to remove interrupt highlighting
+                if (this.gamedatas.hand) {
+                    this.updateHand(this.gamedatas.hand);
+                }
                 break;
             case "DiscardPhase":
                 this.hideDiscardPhase();
                 break;
             case "TargetSelection":
+                // Clear selected targets when leaving state
+                this.selectedTargets = [];
                 this.hideTargetSelection();
                 break;
             case "CardSelection":
@@ -123,20 +156,191 @@ class Game {
                         }, { color: "primary" });
                     }
                     break;
+                case "TargetSelection":
+                    // Show target selection buttons in status bar
+                    if (this.bga.gameui.isCurrentPlayerActive() && args) {
+                        const targetArgs = args.args || args;
+                        const selectablePlayers = targetArgs.selectablePlayers || [];
+                        const targetCount = targetArgs.targetCount || 1;
+                        const requiresMultipleTargets = targetArgs.requiresMultipleTargets || false;
+                        // Store selected targets temporarily
+                        if (!this.selectedTargets) {
+                            this.selectedTargets = [];
+                        }
+                        // Clear previous buttons
+                        this.bga.statusBar.removeActionButtons();
+                        // Add button for each selectable player
+                        selectablePlayers.forEach((player) => {
+                            const isSelected = this.selectedTargets.includes(player.id);
+                            const buttonText = isSelected
+                                ? _("Deselect ${player_name}").replace("${player_name}", player.name)
+                                : _("Select ${player_name}").replace("${player_name}", player.name);
+                            this.bga.statusBar.addActionButton(buttonText, () => {
+                                if (!this.selectedTargets) {
+                                    this.selectedTargets = [];
+                                }
+                                const index = this.selectedTargets.indexOf(player.id);
+                                if (index > -1) {
+                                    // Deselect
+                                    this.selectedTargets.splice(index, 1);
+                                }
+                                else {
+                                    // Select (if we haven't reached the limit)
+                                    if (this.selectedTargets.length < targetCount) {
+                                        this.selectedTargets.push(player.id);
+                                    }
+                                }
+                                // If we have enough targets and it's single target, auto-confirm
+                                // Otherwise, update buttons to show current selection
+                                if (this.selectedTargets.length === targetCount && !requiresMultipleTargets) {
+                                    // Auto-confirm for single target
+                                    this.bga.actions.performAction("actSelectTargets", {
+                                        targetPlayerIds: this.selectedTargets,
+                                    });
+                                    this.selectedTargets = [];
+                                }
+                                else {
+                                    // Update buttons to reflect selection
+                                    this.bga.statusBar.removeActionButtons();
+                                    // Re-add buttons with updated state
+                                    selectablePlayers.forEach((p) => {
+                                        const selected = this.selectedTargets.includes(p.id);
+                                        const text = selected
+                                            ? _("Deselect ${player_name}").replace("${player_name}", p.name)
+                                            : _("Select ${player_name}").replace("${player_name}", p.name);
+                                        this.bga.statusBar.addActionButton(text, () => {
+                                            const idx = this.selectedTargets.indexOf(p.id);
+                                            if (idx > -1) {
+                                                this.selectedTargets.splice(idx, 1);
+                                            }
+                                            else {
+                                                if (this.selectedTargets.length < targetCount) {
+                                                    this.selectedTargets.push(p.id);
+                                                }
+                                            }
+                                            // Trigger update to refresh buttons
+                                            this.bga.statusBar.removeActionButtons();
+                                            // Re-call onUpdateActionButtons logic
+                                            if (this.bga.gameui.isCurrentPlayerActive() && args) {
+                                                const tArgs = args.args || args;
+                                                const sPlayers = tArgs.selectablePlayers || [];
+                                                const tCount = tArgs.targetCount || 1;
+                                                const reqMultiple = tArgs.requiresMultipleTargets || false;
+                                                sPlayers.forEach((pl) => {
+                                                    const sel = this.selectedTargets.includes(pl.id);
+                                                    const txt = sel
+                                                        ? _("Deselect ${player_name}").replace("${player_name}", pl.name)
+                                                        : _("Select ${player_name}").replace("${player_name}", pl.name);
+                                                    this.bga.statusBar.addActionButton(txt, () => {
+                                                        const i = this.selectedTargets.indexOf(pl.id);
+                                                        if (i > -1) {
+                                                            this.selectedTargets.splice(i, 1);
+                                                        }
+                                                        else {
+                                                            if (this.selectedTargets.length < tCount) {
+                                                                this.selectedTargets.push(pl.id);
+                                                            }
+                                                        }
+                                                        // Update buttons again
+                                                        this.bga.statusBar.removeActionButtons();
+                                                        // Re-add buttons
+                                                        sPlayers.forEach((pl2) => {
+                                                            const sel2 = this.selectedTargets.includes(pl2.id);
+                                                            const txt2 = sel2
+                                                                ? _("Deselect ${player_name}").replace("${player_name}", pl2.name)
+                                                                : _("Select ${player_name}").replace("${player_name}", pl2.name);
+                                                            this.bga.statusBar.addActionButton(txt2, () => {
+                                                                const i2 = this.selectedTargets.indexOf(pl2.id);
+                                                                if (i2 > -1) {
+                                                                    this.selectedTargets.splice(i2, 1);
+                                                                }
+                                                                else {
+                                                                    if (this.selectedTargets.length < tCount) {
+                                                                        this.selectedTargets.push(pl2.id);
+                                                                    }
+                                                                }
+                                                                // Update buttons
+                                                                this.bga.statusBar.removeActionButtons();
+                                                                sPlayers.forEach((pl3) => {
+                                                                    const sel3 = this.selectedTargets.includes(pl3.id);
+                                                                    const txt3 = sel3
+                                                                        ? _("Deselect ${player_name}").replace("${player_name}", pl3.name)
+                                                                        : _("Select ${player_name}").replace("${player_name}", pl3.name);
+                                                                    this.bga.statusBar.addActionButton(txt3, () => {
+                                                                        // Similar logic...
+                                                                    }, { color: sel3 ? "secondary" : "primary" });
+                                                                });
+                                                                if (this.selectedTargets.length === tCount) {
+                                                                    this.bga.statusBar.addActionButton(_("Confirm Selection"), () => {
+                                                                        this.bga.actions.performAction("actSelectTargets", {
+                                                                            targetPlayerIds: this.selectedTargets,
+                                                                        });
+                                                                        this.selectedTargets = [];
+                                                                    }, { color: "primary" });
+                                                                }
+                                                            }, { color: sel2 ? "secondary" : "primary" });
+                                                        });
+                                                        if (this.selectedTargets.length === tCount) {
+                                                            this.bga.statusBar.addActionButton(_("Confirm Selection"), () => {
+                                                                this.bga.actions.performAction("actSelectTargets", {
+                                                                    targetPlayerIds: this.selectedTargets,
+                                                                });
+                                                                this.selectedTargets = [];
+                                                            }, { color: "primary" });
+                                                        }
+                                                    }, { color: sel ? "secondary" : "primary" });
+                                                });
+                                                if (this.selectedTargets.length === tCount) {
+                                                    this.bga.statusBar.addActionButton(_("Confirm Selection"), () => {
+                                                        this.bga.actions.performAction("actSelectTargets", {
+                                                            targetPlayerIds: this.selectedTargets,
+                                                        });
+                                                        this.selectedTargets = [];
+                                                    }, { color: "primary" });
+                                                }
+                                            }
+                                        }, { color: selected ? "secondary" : "primary" });
+                                    });
+                                    if (this.selectedTargets.length === targetCount) {
+                                        this.bga.statusBar.addActionButton(_("Confirm Selection"), () => {
+                                            this.bga.actions.performAction("actSelectTargets", {
+                                                targetPlayerIds: this.selectedTargets,
+                                            });
+                                            this.selectedTargets = [];
+                                        }, { color: "primary" });
+                                    }
+                                }
+                            }, { color: isSelected ? "secondary" : "primary" });
+                        });
+                        // Add confirm button if we have enough targets selected
+                        if (this.selectedTargets.length === targetCount) {
+                            this.bga.statusBar.addActionButton(_("Confirm Selection"), () => {
+                                this.bga.actions.performAction("actSelectTargets", {
+                                    targetPlayerIds: this.selectedTargets,
+                                });
+                                this.selectedTargets = [];
+                            }, { color: "primary" });
+                        }
+                    }
+                    break;
                 case "ReactionPhase":
-                    // Add interrupt card buttons if player has them
-                    if (args.players && args.players[this.bga.gameui.player_id]) {
-                        const playerData = args.players[this.bga.gameui.player_id];
-                        if (playerData.hasNoDude) {
-                            this.bga.statusBar.addActionButton(_("Play No dude"), () => {
-                                this.bga.actions.performAction("actPlayNoPoh", {});
-                            }, { color: "alert" });
+                    // In MULTIPLE_ACTIVE_PLAYER state, check if current player is active
+                    // Use bga.players.isCurrentPlayerActive() which works for MULTIPLE_ACTIVE_PLAYER states
+                    if (this.bga.players.isCurrentPlayerActive()) {
+                        // Store reaction phase args for highlighting interrupt cards
+                        this.reactionPhaseArgs = args;
+                        // Update hand to highlight interrupt cards
+                        if (this.gamedatas.hand) {
+                            this.updateHand(this.gamedatas.hand);
                         }
-                        if (playerData.hasIToldYouNoDude) {
-                            this.bga.statusBar.addActionButton(_("Play I told you no dude"), () => {
-                                this.bga.actions.performAction("actPlayTeDijeQueNoPoh", {});
-                            }, { color: "alert" });
-                        }
+                        // Add "Skip" button for all active players
+                        this.bga.statusBar.addActionButton(_("Skip"), () => {
+                            this.bga.actions.performAction("actSkipReaction", {});
+                        }, { color: "secondary" });
+                    }
+                    else {
+                        // Clear reaction phase args if not active
+                        this.reactionPhaseArgs = null;
                     }
                     break;
                 case "DiscardPhase":
@@ -155,12 +359,17 @@ class Game {
         const handCards = document.getElementById("hand-cards");
         if (!handCards)
             return;
+        // Check if we're in reaction phase and current player is active
+        const isReactionPhase = this.gamedatas.gamestate.name === "ReactionPhase" &&
+            this.bga.players.isCurrentPlayerActive();
         hand.forEach((card) => {
             const cardDiv = document.createElement("div");
             cardDiv.className = "card";
             cardDiv.dataset.cardId = card.id.toString();
             const cardName = this.getCardName(card);
             const cardValue = this.getCardValue(card);
+            // Check if this is an interrupt card
+            const isInterruptCard = this.isInterruptCard(card);
             cardDiv.innerHTML = `
                 <div class="card-type">${card.type}</div>
                 <div class="card-name">${cardName}</div>
@@ -168,12 +377,29 @@ class Game {
             `;
             // Add click handler
             cardDiv.addEventListener("click", () => this.onCardClick(card.id));
-            // Highlight if selected
+            // Highlight if selected for threesome
             if (this.selectedCards.includes(card.id)) {
                 cardDiv.classList.add("selected");
             }
+            // Highlight interrupt cards in reaction phase
+            // Only highlight if we're in ReactionPhase AND the current player is active
+            if (isReactionPhase && isInterruptCard) {
+                cardDiv.classList.add("interrupt-card");
+            }
             handCards.appendChild(cardDiv);
         });
+    }
+    /**
+     * Check if a card is an interrupt card (No dude or I told you no dude)
+     */
+    isInterruptCard(card) {
+        if (card.type !== "action") {
+            return false;
+        }
+        const typeArg = card.type_arg || 0;
+        const decoded = this.decodeCardTypeArg(typeArg);
+        // name_index 1 = "No dude", name_index 2 = "I told you no dude"
+        return decoded.name_index === 1 || decoded.name_index === 2;
     }
     /**
      * Decode card_type_arg to get name_index, value, and isAlarm
@@ -380,68 +606,55 @@ class Game {
             discardDiv.remove();
         }
     }
-    showTargetSelection(args) {
-        if (!this.bga.gameui.isCurrentPlayerActive())
-            return;
-        const container = document.getElementById("game_actions");
-        if (!container)
-            return;
-        // Remove any existing target selection UI
-        this.hideTargetSelection();
-        const targetDiv = document.createElement("div");
-        targetDiv.id = "target-selection-ui";
-        targetDiv.className = "target-selection-ui";
-        targetDiv.innerHTML = `
-      <div class="target-selection-title">${_("Select Target")}</div>
-      <div class="target-selection-players" id="target-selection-players"></div>
-      <button id="confirm-target" class="btn btn-primary" disabled>${_("Confirm")}</button>
-    `;
-        container.appendChild(targetDiv);
-        const playersDiv = document.getElementById("target-selection-players");
-        if (!playersDiv)
-            return;
-        const selectedTargets = [];
-        const targetCount = args.targetCount || 1;
-        if (args.selectablePlayers && Array.isArray(args.selectablePlayers)) {
-            args.selectablePlayers.forEach((player) => {
-                const playerDiv = document.createElement("div");
-                playerDiv.className = "target-player";
-                playerDiv.dataset.playerId = player.id.toString();
-                playerDiv.textContent = player.name;
-                playerDiv.addEventListener("click", () => {
-                    const playerId = player.id;
-                    const index = selectedTargets.indexOf(playerId);
-                    if (index > -1) {
-                        // Deselect
-                        playerDiv.classList.remove("selected");
-                        selectedTargets.splice(index, 1);
-                    }
-                    else {
-                        // Select (if we haven't reached the limit)
-                        if (selectedTargets.length < targetCount) {
-                            playerDiv.classList.add("selected");
-                            selectedTargets.push(playerId);
-                        }
-                    }
-                    // Enable/disable confirm button
-                    const confirmBtn = document.getElementById("confirm-target");
-                    if (confirmBtn) {
-                        confirmBtn.disabled = selectedTargets.length !== targetCount;
-                    }
-                });
-                playersDiv.appendChild(playerDiv);
-            });
+    updateTargetSelectionButtons(args) {
+        // Clear previous buttons
+        this.bga.statusBar.removeActionButtons();
+        // Initialize selected targets if needed
+        if (!this.selectedTargets) {
+            this.selectedTargets = [];
         }
-        // Confirm button handler
-        const confirmBtn = document.getElementById("confirm-target");
-        if (confirmBtn) {
-            confirmBtn.addEventListener("click", () => {
-                if (selectedTargets.length === targetCount) {
-                    this.bga.actions.performAction("actSelectTargets", {
-                        target_player_ids: selectedTargets,
-                    });
+        const selectablePlayers = args.selectablePlayers || [];
+        const targetCount = args.targetCount || 1;
+        const requiresMultipleTargets = args.requiresMultipleTargets || false;
+        // Add button for each selectable player
+        selectablePlayers.forEach((player) => {
+            const isSelected = this.selectedTargets.includes(player.id);
+            const buttonText = isSelected
+                ? _("Deselect ${player_name}").replace("${player_name}", player.name)
+                : _("Select ${player_name}").replace("${player_name}", player.name);
+            this.bga.statusBar.addActionButton(buttonText, () => {
+                const index = this.selectedTargets.indexOf(player.id);
+                if (index > -1) {
+                    // Deselect
+                    this.selectedTargets.splice(index, 1);
                 }
-            });
+                else {
+                    // Select (if we haven't reached the limit)
+                    if (this.selectedTargets.length < targetCount) {
+                        this.selectedTargets.push(player.id);
+                    }
+                }
+                // For single target, auto-submit when selected
+                if (this.selectedTargets.length === targetCount && !requiresMultipleTargets) {
+                    this.bga.actions.performAction("actSelectTargets", {
+                        targetPlayerIds: this.selectedTargets,
+                    });
+                    this.selectedTargets = [];
+                }
+                else {
+                    // For multiple targets, refresh buttons to show updated state
+                    this.updateTargetSelectionButtons(args);
+                }
+            }, { color: isSelected ? "secondary" : "primary" });
+        });
+        // Add confirm button if we have enough targets selected (for multiple targets)
+        if (requiresMultipleTargets && this.selectedTargets.length === targetCount) {
+            this.bga.statusBar.addActionButton(_("Confirm Selection"), () => {
+                this.bga.actions.performAction("actSelectTargets", {
+                    targetPlayerIds: this.selectedTargets,
+                });
+                this.selectedTargets = [];
+            }, { color: "primary" });
         }
     }
     hideTargetSelection() {
@@ -453,9 +666,6 @@ class Game {
     showCardSelection(args) {
         if (!this.bga.gameui.isCurrentPlayerActive())
             return;
-        const container = document.getElementById("game_actions");
-        if (!container)
-            return;
         // Remove any existing card selection UI
         this.hideCardSelection();
         const cardDiv = document.createElement("div");
@@ -465,7 +675,7 @@ class Game {
       <div class="card-selection-title">${_("Select a card from ${target_name}'s hand").replace("${target_name}", args.targetPlayerName || "")}</div>
       <div class="card-selection-cards" id="card-selection-cards"></div>
     `;
-        container.appendChild(cardDiv);
+        this.bga.gameArea.getElement().appendChild(cardDiv);
         const cardsDiv = document.getElementById("card-selection-cards");
         if (!cardsDiv)
             return;
@@ -487,7 +697,7 @@ class Game {
                 backDiv.style.margin = "5px";
                 backDiv.addEventListener("click", () => {
                     this.bga.actions.performAction("actSelectCard", {
-                        card_position: cardBack.position,
+                        cardPosition: cardBack.position,
                     });
                 });
                 cardsDiv.appendChild(backDiv);
@@ -502,9 +712,6 @@ class Game {
     }
     showCardNameSelection(args) {
         if (!this.bga.gameui.isCurrentPlayerActive())
-            return;
-        const container = document.getElementById("game_actions");
-        if (!container)
             return;
         // Remove any existing card name selection UI
         this.hideCardNameSelection();
@@ -563,7 +770,7 @@ class Game {
                 });
             }
         });
-        container.appendChild(nameDiv);
+        this.bga.gameArea.getElement().appendChild(nameDiv);
     }
     hideCardNameSelection() {
         const nameDiv = document.getElementById("card-name-selection-ui");
@@ -575,35 +782,56 @@ class Game {
     //// Player's action
     onCardClick(card_id) {
         console.log("onCardClick", card_id);
-        // Toggle selection for threesome
-        if (this.selectedCards.includes(card_id)) {
-            this.selectedCards = this.selectedCards.filter((id) => id !== card_id);
+        const currentState = this.gamedatas.gamestate.name;
+        const card = this.gamedatas.hand?.find((c) => c.id === card_id);
+        // Check if we're in reaction phase and this is an interrupt card
+        if (currentState === "ReactionPhase" &&
+            this.bga.players.isCurrentPlayerActive() &&
+            card &&
+            this.isInterruptCard(card)) {
+            // Play the interrupt card
+            const decoded = this.decodeCardTypeArg(card.type_arg || 0);
+            if (decoded.name_index === 1) {
+                // "No dude"
+                this.bga.actions.performAction("actPlayNoPoh", {});
+            }
+            else if (decoded.name_index === 2) {
+                // "I told you no dude"
+                this.bga.actions.performAction("actPlayTeDijeQueNoPoh", {});
+            }
+            return;
         }
-        else {
-            if (this.selectedCards.length < 3) {
-                this.selectedCards.push(card_id);
+        // Normal card selection for threesome (only in PlayerTurn)
+        if (currentState === "PlayerTurn") {
+            // Toggle selection for threesome
+            if (this.selectedCards.includes(card_id)) {
+                this.selectedCards = this.selectedCards.filter((id) => id !== card_id);
             }
             else {
-                // Replace first selected card
-                this.selectedCards.shift();
-                this.selectedCards.push(card_id);
+                if (this.selectedCards.length < 3) {
+                    this.selectedCards.push(card_id);
+                }
+                else {
+                    // Replace first selected card
+                    this.selectedCards.shift();
+                    this.selectedCards.push(card_id);
+                }
             }
-        }
-        // Update UI
-        this.updateHand(this.gamedatas.hand || []);
-        // Update action buttons
-        const currentState = this.gamedatas.gamestate.name;
-        this.onUpdateActionButtons(currentState, this.gamedatas.gamestate.args || null);
-        // If 3 cards selected, offer to play as single card or wait for threesome button
-        // For now, just play as single card if clicked again
-        if (this.selectedCards.length != 3) {
-            this.bga.actions
-                .performAction("actPlayCard", {
-                card_id,
-            })
-                .then(() => {
-                // What to do after the server call if it succeeded
-            });
+            // Update UI
+            this.updateHand(this.gamedatas.hand || []);
+            // Update action buttons
+            this.onUpdateActionButtons(currentState, this.gamedatas.gamestate.args || null);
+            // If 3 cards selected, offer to play as single card or wait for threesome button
+            // For now, just play as single card if clicked again
+            if (this.selectedCards.length != 3) {
+                this.bga.actions
+                    .performAction("actPlayCard", {
+                    card_id,
+                })
+                    .then(() => {
+                    // What to do after the server call if it succeeded
+                });
+            }
         }
     }
     ///////////////////////////////////////////////////
@@ -618,16 +846,12 @@ class Game {
         console.log("Card played:", args);
         // Update deck display (deck count doesn't change when playing cards)
         this.updateDeckDisplay(this.gamedatas.deckCount || 0);
-        // Update discard pile with the played card
-        if (args.card_type && args.card_type_arg !== undefined) {
-            const discardedCard = {
-                id: args.card_id,
-                type: args.card_type,
-                type_arg: args.card_type_arg,
-            };
-            this.updateDiscardDisplay(discardedCard);
-        }
+        // Don't update discard pile yet - card might be interrupted
+        // The card will be moved to discard in ActionResolution after reaction phase
+        // Only update discard if this is not an action card requiring target selection
+        // (For now, we'll handle discard in ActionResolution notification)
         // Remove card from hand if it's current player's card
+        // The card is being played, so remove it from hand display
         if (this.gamedatas.hand) {
             this.gamedatas.hand = this.gamedatas.hand.filter((card) => card.id !== args.card_id);
             this.updateHand(this.gamedatas.hand);
@@ -677,8 +901,16 @@ class Game {
         this.updateDeckDisplay(Math.max(0, (this.gamedatas.deckCount || 0) - 1));
         // Add card to hand if it's current player
         if (args.player_id == this.bga.gameui.player_id && this.gamedatas.hand) {
-            // Card will be added by server, update hand display
-            this.updateHand(this.gamedatas.hand);
+            // Add the new card to the hand array
+            if (args.card_type && args.card_type_arg !== undefined) {
+                const newCard = {
+                    id: args.card_id,
+                    type: args.card_type,
+                    type_arg: args.card_type_arg,
+                };
+                this.gamedatas.hand.push(newCard);
+                this.updateHand(this.gamedatas.hand);
+            }
         }
     }
     async notif_cardsDiscarded(args) {

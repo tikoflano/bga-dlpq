@@ -7,6 +7,7 @@ namespace Bga\Games\DondeLasPapasQueman\States;
 use Bga\GameFramework\StateType;
 use Bga\GameFramework\States\GameState;
 use Bga\GameFramework\States\PossibleAction;
+use Bga\GameFramework\Actions\Types\IntArrayParam;
 use Bga\GameFramework\UserException;
 use Bga\Games\DondeLasPapasQueman\Game;
 use Bga\Games\DondeLasPapasQueman\States\CardSelection;
@@ -79,7 +80,7 @@ class TargetSelection extends GameState
      * Select target(s) for action card
      */
     #[PossibleAction]
-    public function actSelectTargets(array $targetPlayerIds, int $activePlayerId)
+    public function actSelectTargets(#[IntArrayParam] array $targetPlayerIds, int $activePlayerId)
     {
         // Get the card being played from game state
         $actionCardData = $this->game->globals->get("action_card_data");

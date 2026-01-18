@@ -242,10 +242,15 @@ class PlayerTurn extends GameState {
         $isAlarm = $decoded["isAlarm"];
         $nameIndex = $decoded["name_index"];
 
-        // Move card to discard
-        $this->game->cards->moveCard($card_id, "discard");
+        // Check if this is an action card that requires target selection
+        $targetRequired = 0;
+        if ($card["type"] == "action") {
+            $targetRequired = Game::actionCardRequiresTarget($nameIndex);
+        }
 
-        // Notify all players
+        // Don't move card to discard yet - it could be interrupted
+        // The card will be moved to discard in ActionResolution after the reaction phase
+        // For now, just notify that the card is being played
         $this->notify->all("cardPlayed", clienttranslate('${player_name} plays ${card_name}'), [
             "player_id" => $activePlayerId,
             "player_name" => $this->game->getPlayerNameById($activePlayerId),
@@ -256,12 +261,6 @@ class PlayerTurn extends GameState {
             "is_alarm" => $isAlarm,
             "i18n" => ["card_name"],
         ]);
-
-        // Check if this is an action card that requires target selection
-        $targetRequired = 0;
-        if ($card["type"] == "action") {
-            $targetRequired = Game::actionCardRequiresTarget($nameIndex);
-        }
 
         if ($targetRequired > 0) {
             // Store card info for target selection and action resolution
@@ -317,6 +316,52 @@ class PlayerTurn extends GameState {
             "player_name" => $this->game->getPlayerNameById($activePlayerId),
         ]);
 
+        return NextPlayer::class;
+    }
+
+    /**
+     * Skip turn and draw a card
+     */
+    #[PossibleAction]
+    public function actSkipAndDraw(int $activePlayerId) {
+        // Draw 1 card from deck (handle deck exhaustion)
+        $drawnCard = $this->game->cards->pickCard('deck', $activePlayerId);
+        
+        if (!$drawnCard) {
+            // Deck exhausted, try to reshuffle
+            $discardCount = $this->game->cards->countCardInLocation('discard');
+            if ($discardCount > 0) {
+                $this->game->cards->moveAllCardsInLocation('discard', 'deck');
+                $this->game->cards->shuffle('deck');
+                $this->game->notify->all("deckReshuffled", clienttranslate("The discard pile is reshuffled into the deck"));
+                
+                $drawnCard = $this->game->cards->pickCard('deck', $activePlayerId);
+            }
+        }
+
+        if ($drawnCard) {
+            $this->notify->all("cardDrawn", clienttranslate('${player_name} skips their turn and draws a card'), [
+                "player_id" => $activePlayerId,
+                "player_name" => $this->game->getPlayerNameById($activePlayerId),
+                "card_id" => $drawnCard['id'],
+                "card_type" => $drawnCard['type'],
+                "card_type_arg" => $drawnCard['type_arg'],
+            ]);
+
+            // Check hand size
+            $hand = $this->game->cards->getPlayerHand($activePlayerId);
+            $handSize = count($hand);
+
+            if ($handSize > 7) {
+                // Mark that we should skip end-of-turn draw
+                $this->game->setGameStateValue("skip_draw_flag", 1);
+                // Transition to DiscardPhase
+                return DiscardPhase::class;
+            }
+        }
+
+        // Mark that we should skip end-of-turn draw (since we already drew)
+        $this->game->setGameStateValue("skip_draw_flag", 1);
         return NextPlayer::class;
     }
 
