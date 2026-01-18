@@ -13,13 +13,13 @@ const config = {
   useTempFile: false,
   openSsh: false,
   uploadOnSave: true,
-  ignore: [".vscode", ".devcontainer", "node_moduless", ".git", ".DS_Store"],
+  ignore: [".vscode", ".devcontainer", "node_modules", ".git", ".DS_Store", ".cursorrules", ".cursor"],
   syncOption: {
     skipCreate: false,
     delete: true,
   },
   watcher: {
-    files: `{img/*,${projectName}.*}`,
+    files: `{img/**,gameinfos.inc.php,game*.json,stats.json,dbmodel.sql,${projectName}.css,modules/js/Game.js,modules/php/**}`,
     autoUpload: true,
     autoDelete: true,
   },
