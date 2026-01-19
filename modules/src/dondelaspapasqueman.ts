@@ -30,6 +30,9 @@ class Game {
   // Reaction phase args (for highlighting interrupt cards)
   private reactionPhaseArgs: any = null;
 
+  // Card selection modal
+  private cardSelectionDialog: PopinDialog | null = null;
+
   constructor(bga: Bga<DondeLasPapasQuemanGamedatas>) {
     console.log("dondelaspapasqueman constructor");
     this.bga = bga;
@@ -142,7 +145,11 @@ class Game {
 
       case "CardSelection":
         // Args might be nested in args.args
-        this.showCardSelection(args.args || args);
+        console.log("CardSelection onEnteringState - args:", args);
+        console.log("CardSelection onEnteringState - args.args:", args.args);
+        const cardSelectionArgs = args.args || args;
+        console.log("CardSelection onEnteringState - calling showCardSelection with:", cardSelectionArgs);
+        this.showCardSelection(cardSelectionArgs);
         break;
 
       case "CardNameSelection":
@@ -813,56 +820,73 @@ class Game {
   }
 
   showCardSelection(args: any): void {
-    if (!this.bga.gameui.isCurrentPlayerActive()) return;
+    console.log("showCardSelection called with args:", args);
+    if (!this.bga.gameui.isCurrentPlayerActive()) {
+      console.log("showCardSelection: Player is not active, returning");
+      return;
+    }
 
     // Remove any existing card selection UI
     this.hideCardSelection();
 
-    const cardDiv = document.createElement("div");
-    cardDiv.id = "card-selection-ui";
-    cardDiv.className = "card-selection-ui";
-    cardDiv.innerHTML = `
-      <div class="card-selection-title">${_("Select a card from ${target_name}'s hand").replace("${target_name}", args.targetPlayerName || "")}</div>
-      <div class="card-selection-cards" id="card-selection-cards"></div>
-    `;
+    // Create the modal dialog
+    console.log("showCardSelection: Creating PopinDialog");
+    this.cardSelectionDialog = new ebg.popindialog();
+    this.cardSelectionDialog.create("card-selection-dialog");
+    this.cardSelectionDialog.setTitle(_("Select a card from ${target_name}'s hand").replace("${target_name}", args.targetPlayerName || ""));
+    this.cardSelectionDialog.setMaxWidth(600);
+    this.cardSelectionDialog.hideCloseIcon();
+    console.log("showCardSelection: PopinDialog created, modal element:", document.getElementById("card-selection-dialog"));
 
-    this.bga.gameArea.getElement().appendChild(cardDiv);
-
-    const cardsDiv = document.getElementById("card-selection-cards");
-    if (!cardsDiv) return;
-
-    // Show card backs (same visual for all)
+    // Build the content HTML with card backs
+    let cardsHtml = '<div id="card-selection-cards" style="text-align: center; padding: 20px;">';
+    
     if (args.cardBacks && Array.isArray(args.cardBacks)) {
       args.cardBacks.forEach((cardBack: any) => {
-        const backDiv = document.createElement("div");
-        backDiv.className = "card-back";
-        backDiv.dataset.position = cardBack.position.toString();
-        backDiv.dataset.cardId = cardBack.card_id.toString();
-        // Show card back visual (red rectangle)
-        backDiv.style.width = "60px";
-        backDiv.style.height = "90px";
-        backDiv.style.backgroundColor = "#8B0000";
-        backDiv.style.border = "2px solid #000";
-        backDiv.style.borderRadius = "5px";
-        backDiv.style.cursor = "pointer";
-        backDiv.style.display = "inline-block";
-        backDiv.style.margin = "5px";
-
-        backDiv.addEventListener("click", () => {
-          this.bga.actions.performAction("actSelectCard", {
-            cardPosition: cardBack.position,
-          });
-        });
-
-        cardsDiv.appendChild(backDiv);
+        cardsHtml += `
+          <div class="card-back" 
+               data-position="${cardBack.position}" 
+               data-card-id="${cardBack.card_id}"
+               style="width: 60px; height: 90px; background-color: #8B0000; border: 2px solid #000; border-radius: 5px; cursor: pointer; display: inline-block; margin: 5px;">
+          </div>
+        `;
       });
     }
+    
+    cardsHtml += '</div>';
+    this.cardSelectionDialog.setContent(cardsHtml);
+    console.log("showCardSelection: Content set, showing modal");
+    this.cardSelectionDialog.show();
+    console.log("showCardSelection: Modal shown, checking if visible:", document.getElementById("card-selection-dialog")?.style.display);
+
+    // Attach click handlers to card backs after a short delay to ensure DOM is ready
+    setTimeout(() => {
+      const cardsDiv = document.getElementById("card-selection-cards");
+      if (cardsDiv) {
+        const cardBacks = cardsDiv.querySelectorAll(".card-back");
+        console.log("showCardSelection: Found", cardBacks.length, "card backs");
+        cardBacks.forEach((backDiv) => {
+          backDiv.addEventListener("click", () => {
+            const position = parseInt((backDiv as HTMLElement).dataset.position || "0");
+            console.log("showCardSelection: Card clicked, position:", position);
+            this.bga.actions.performAction("actSelectCard", {
+              cardPosition: position,
+            });
+            // Close the modal after selection
+            this.hideCardSelection();
+          });
+        });
+      } else {
+        console.log("showCardSelection: cardsDiv not found after show()");
+      }
+    }, 100);
   }
 
   hideCardSelection(): void {
-    const cardDiv = document.getElementById("card-selection-ui");
-    if (cardDiv) {
-      cardDiv.remove();
+    if (this.cardSelectionDialog) {
+      this.cardSelectionDialog.hide();
+      this.cardSelectionDialog.destroy();
+      this.cardSelectionDialog = null;
     }
   }
 
