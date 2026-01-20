@@ -5,67 +5,54 @@ export class DiscardPhaseState implements ClientStateHandler {
   constructor(private game: Game) {}
 
   onEnter(args: any): void {
-    // Only show UI for the active player
+    // Discard-to-7 UI should be handled via:
+    // - clicking cards in hand to select
+    // - a status-bar button that submits the discard when the selection is valid
+    // So we explicitly remove any legacy UI block (older builds) and just rely on the hand rendering.
+    this.hide();
+    this.game.clearSelectedCards();
+    this.game.updateHand(this.game.getGamedatas().hand || []);
+    this.onUpdateActionButtons(args);
+  }
+
+  onUpdateActionButtons(args: any): void {
     if (!this.game.bga.gameui.isCurrentPlayerActive()) return;
 
-    this.hide();
+    // BGA sometimes wraps state args as { args: ... }.
+    const a = args?.args || args || {};
 
-    const discardDiv = document.createElement("div");
-    discardDiv.id = "discard-phase-ui";
-    discardDiv.className = "discard-phase";
-    discardDiv.innerHTML = `
-            <h3>Discard Cards</h3>
-            <p>You have ${args.handSize} cards. Discard ${args.cardsToDiscard} to get down to 7.</p>
-            <div id="discard-selection-area"></div>
-            <button id="confirm-discard" disabled>Confirm Discard</button>
-        `;
-    this.game.bga.gameArea.getElement().appendChild(discardDiv);
+    this.game.bga.statusBar.removeActionButtons();
 
-    const selectionArea = document.getElementById("discard-selection-area");
-    if (!selectionArea) return;
+    const handSize = (this.game.getGamedatas().hand || []).length;
+    const selectedCount = this.game.getSelectedCards().length;
+    const cardsToDiscard = Math.max(0, handSize - 7);
 
-    const selectedForDiscard: number[] = [];
-    if (args.hand && Array.isArray(args.hand)) {
-      args.hand.forEach((card: Card) => {
-        const cardDiv = document.createElement("div");
-        cardDiv.className = "discard-card";
-        cardDiv.dataset.cardId = card.id.toString();
-        cardDiv.innerHTML = `Card ${card.id}`;
+    // Only show the action if the selection would leave exactly 7 cards.
+    if (cardsToDiscard > 0 && selectedCount === cardsToDiscard) {
+      const label = _("Discard ${count} cards").replace("${count}", String(selectedCount));
+      this.game.bga.statusBar.addActionButton(
+        label,
+        () => {
+          const cardIds = this.game.getSelectedCards().slice();
+          // Defensive: only submit if still valid at click-time.
+          if ((this.game.getGamedatas().hand || []).length - cardIds.length !== 7) return;
 
-        cardDiv.addEventListener("click", () => {
-          if (cardDiv.classList.contains("selected")) {
-            cardDiv.classList.remove("selected");
-            const index = selectedForDiscard.indexOf(card.id);
-            if (index > -1) selectedForDiscard.splice(index, 1);
-          } else {
-            cardDiv.classList.add("selected");
-            selectedForDiscard.push(card.id);
-          }
-
-          const confirmBtn = document.getElementById("confirm-discard") as HTMLButtonElement;
-          if (confirmBtn) {
-            confirmBtn.disabled = selectedForDiscard.length < args.cardsToDiscard;
-          }
-        });
-
-        selectionArea.appendChild(cardDiv);
-      });
-    }
-
-    const confirmBtn = document.getElementById("confirm-discard");
-    if (confirmBtn) {
-      confirmBtn.addEventListener("click", () => {
-        if (selectedForDiscard.length >= args.cardsToDiscard) {
-          this.game.bga.actions.performAction("actDiscardCards", {
-            card_ids: selectedForDiscard,
-          });
-        }
-      });
+          this.game.bga.actions.performAction("actDiscardCards", { card_ids: cardIds });
+          this.game.clearSelectedCards();
+          this.game.updateHand(this.game.getGamedatas().hand || []);
+          this.game.bga.statusBar.removeActionButtons();
+        },
+        { color: "primary" },
+      );
+    } else if (a) {
+      // No button: status bar text is enough, per UX requirement.
     }
   }
 
   onLeave(): void {
     this.hide();
+    this.game.clearSelectedCards();
+    this.game.updateHand(this.game.getGamedatas().hand || []);
   }
 
   private hide(): void {

@@ -85,11 +85,16 @@ export class GameNotifications {
     console.log("Threesome played:", args);
     this.game.updateDeckDisplay(Math.max(0, this.game.getGamedatas().deckCount || 0));
 
-    const gd = this.game.getGamedatas();
-    if (gd.hand) {
-      gd.hand = gd.hand.filter((card) => !args.card_ids.includes(card.id));
-      this.game.updateHand(gd.hand);
+    const playerId = this.asInt(args.player_id);
+    const delta = this.asInt(args.golden_potatoes) ?? 0;
+    if (playerId !== null && delta !== 0) {
+      this.applyGoldenPotatoesDelta(playerId, delta);
     }
+  }
+
+  async notif_threesomeScored(args: any): Promise<void> {
+    console.log("Threesome scored:", args);
+    this.game.updateDeckDisplay(Math.max(0, this.game.getGamedatas().deckCount || 0));
 
     const playerId = this.asInt(args.player_id);
     const delta = this.asInt(args.golden_potatoes) ?? 0;
@@ -117,12 +122,7 @@ export class GameNotifications {
 
   async notif_threesomeCancelled(args: any): Promise<void> {
     console.log("Threesome cancelled:", args);
-
-    const targetPlayerId = this.asInt(args.target_player_id);
-    if (targetPlayerId !== null) {
-      // Cancelled threesome always removes 3 golden potatoes.
-      this.applyGoldenPotatoesDelta(targetPlayerId, -3);
-    }
+    // No golden potatoes to revert: they are awarded only after the reaction phase completes.
   }
 
   async notif_cardDrawn(args: any): Promise<void> {
@@ -149,8 +149,32 @@ export class GameNotifications {
 
     const gd = this.game.getGamedatas();
     if (gd.hand) {
-      gd.hand = gd.hand.filter((card) => !args.card_ids.includes(card.id));
+      const discardedIds = new Set<number>();
+      if (Array.isArray(args.card_ids)) {
+        for (const raw of args.card_ids) {
+          const n = this.asInt(raw);
+          if (n !== null) discardedIds.add(n);
+        }
+      }
+
+      gd.hand = gd.hand.filter((card) => {
+        const id = this.asInt((card as any).id);
+        // If we can't parse the id, don't accidentally delete the card.
+        if (id === null) return true;
+        return !discardedIds.has(id);
+      });
       this.game.updateHand(gd.hand);
+    }
+
+    // Update discard display to show one of the discarded cards as the new top.
+    const top = args.discard_top_card;
+    if (top && typeof top === "object") {
+      const id = this.asInt(top.id);
+      const type = typeof top.type === "string" ? top.type : null;
+      const typeArg = this.asInt(top.type_arg);
+      if (id !== null && type && typeArg !== null) {
+        this.game.updateDiscardDisplay({ id, type, type_arg: typeArg });
+      }
     }
   }
 

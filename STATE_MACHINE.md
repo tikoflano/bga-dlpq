@@ -66,10 +66,10 @@ stateDiagram-v2
         [*] --> DiscardCards
         DiscardCards --> CheckHandSize
         CheckHandSize --> DiscardCards: Still >7 cards
-        CheckHandSize --> [*]: ≤7 cards
+        CheckHandSize --> [*]: ==7 cards
     }
     
-    DiscardPhase --> NextPlayer: Hand Size ≤7
+    DiscardPhase --> NextPlayer: Hand Size ==7
     
     state NextPlayer {
         [*] --> CheckSkipDraw
@@ -99,16 +99,17 @@ stateDiagram-v2
     note right of PlayerTurn
         Actions:
         - Play Card
-        - Play Threesome (trio)
+        - Play Threesome
         - End Turn (draws card, checks hand size)
         - Discard & Draw (if 1 card)
         
         Notes:
+        - Threesome action uses `card_ids` list parameter (3 card ids).
         - Potato cards, wildcards, and interrupt cards
           ("No dude", "I told you no dude") cannot be played as single cards.
-        - Valid trios are:
+        - Valid threesomes are:
           - 3 potato cards with the same name
-          - Potato trio with 1-2 wildcards (potato name must match)
+          - Potato threesome with 1-2 wildcards (potato name must match)
           - 3 wildcards (treated as french fries)
           - 3 cards of any type with value==3 each
     end note
@@ -120,6 +121,16 @@ stateDiagram-v2
         - "I told you no dude"
         (Actions are performed by the requesting player;
         no `playerId` parameter is required from the client.)
+
+        Timing:
+        - Each eligible reacting player has ~5 seconds to react after the notification/UI appears.
+        - The client shows a visual fill on the "Skip" button during the countdown.
+        - If the player does nothing, the client auto-sends "Skip" for that player.
+        - If a player disconnects, zombie handling also skips so the phase can't stall.
+
+        Threesome timing:
+        - Threesome cards are moved to the discard pile immediately when played (before the interrupt window).
+        - Threesome golden potatoes are awarded only after the reaction phase completes with no interrupt.
     end note
     
     note right of ActionResolution
@@ -146,6 +157,8 @@ stateDiagram-v2
 ### ReactionPhase (ID: 20)
 - **Type**: MULTIPLE_ACTIVE_PLAYER
 - **Description**: All players (except card player) can react with interrupt cards
+- **Notes**:
+  - Each eligible reacting player has a ~5 second window to act; otherwise they auto-skip.
 - **Transitions**:
   - → PlayerTurn: Interrupt played, regular card (no alarm), or cancelled
   - → ActionResolution: Action card played (no interrupt), including action cards that required no target selection
@@ -180,9 +193,9 @@ stateDiagram-v2
 
 ### DiscardPhase (ID: 30)
 - **Type**: ACTIVE_PLAYER
-- **Description**: Discard cards down to 7 or fewer
+- **Description**: Discard cards down to exactly 7
 - **Transitions**:
-  - → NextPlayer: Hand size ≤7
+  - → NextPlayer: Hand size ==7
 
 ### NextPlayer (ID: 90)
 - **Type**: GAME

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Bga\Games\DondeLasPapasQueman\States;
 
+use Bga\GameFramework\Actions\Types\IntArrayParam;
 use Bga\GameFramework\StateType;
 use Bga\GameFramework\States\GameState;
 use Bga\GameFramework\States\PossibleAction;
@@ -119,10 +120,21 @@ class PlayerTurn extends GameState {
     }
 
     /**
+     * Defensive no-op:
+     * If a client auto-skip timer fires right after ReactionPhase ended,
+     * the request can land in PlayerTurn. Having this action prevents a fatal
+     * "method is not defined" server error; we simply ignore it.
+     */
+    #[PossibleAction]
+    public function actSkipReaction(int $activePlayerId) {
+        return null;
+    }
+
+    /**
      * Play a threesome (3 cards of same type/name or same value)
      */
     #[PossibleAction]
-    public function actPlayThreesome(array $card_ids, int $activePlayerId) {
+    public function actPlayThreesome(#[IntArrayParam] array $card_ids, int $activePlayerId) {
         if (count($card_ids) != 3) {
             throw new UserException("You must play exactly 3 cards for a threesome");
         }
@@ -138,7 +150,7 @@ class PlayerTurn extends GameState {
 
         $cards = $this->game->cards->getCards($card_ids);
 
-        // Check if it's a type-based threesome (potato cards with same name + optional wildcards)
+        // Check if it's a potato-name threesome (potato cards with same name + optional wildcards)
         $potatoCards = [];
         $wildcards = [];
         foreach ($cards as $card) {
@@ -152,15 +164,17 @@ class PlayerTurn extends GameState {
 
         $goldenPotatoes = 0;
         $isTypeBased = false;
+        $threesomeName = "";
 
-        // Check type-based threesome
+        // Check potato-name threesome
         if (count($potatoCards) + count($wildcards) == 3) {
-            // 3 wildcards => trio of french fries
+            // 3 wildcards => threesome of french fries
             if (count($wildcards) == 3) {
                 $isTypeBased = true;
                 $goldenPotatoes = 3;
+                $threesomeName = Game::getCardName("potato", 3);
             } elseif (count($wildcards) <= 2 && count($potatoCards) > 0) {
-                // Potato trio with 1-2 wildcards; potato cards must share the same name
+                // Potato threesome with 1-2 wildcards; potato cards must share the same name
                 $nameIndexes = array_column($potatoCards, "name_index");
                 $uniqueNames = array_unique($nameIndexes);
                 if (count($uniqueNames) == 1) {
@@ -174,6 +188,7 @@ class PlayerTurn extends GameState {
                         3 => 3, // french fries
                         default => 0,
                     };
+                    $threesomeName = Game::getCardName("potato", (int) $nameIndex);
                 }
             }
         }
@@ -189,8 +204,11 @@ class PlayerTurn extends GameState {
             if (count($uniqueValues) == 1 && $uniqueValues[0] === 3) {
                 // All cards have value == 3
                 $goldenPotatoes = 1;
+                $threesomeName = clienttranslate("value 3");
             } else {
-                throw new UserException("Invalid threesome: must be a potato trio (with optional wildcards), 3 wildcards, or three value-3 cards");
+                throw new UserException(
+                    "Invalid threesome: must be a potato threesome (with optional wildcards), 3 wildcards, or three value-3 cards"
+                );
             }
         }
 
@@ -203,24 +221,32 @@ class PlayerTurn extends GameState {
             $this->game->cards->moveCard($card["id"], "discard");
         }
 
-        // Award golden potatoes and update score
-        $this->game->updateGoldenPotatoes($activePlayerId, $goldenPotatoes);
+        // Immediately remove the cards from the active player's hand (UI should update before interrupt phase).
+        $this->game->notify->player($activePlayerId, "handUpdated", '', [
+            "hand" => array_values($this->game->cards->getPlayerHand($activePlayerId)),
+            "deckCount" => $this->game->cards->countCardInLocation("deck"),
+        ]);
 
-        $threesomeType = $isTypeBased ? "type-based" : "value-based";
-        $this->notify->all(
-            "threesomePlayed",
-            clienttranslate(
-                '${player_name} plays a ${threesome_type} threesome and gains ${golden_potatoes} golden potatoes'
-            ),
-            [
-                "player_id" => $activePlayerId,
-                "player_name" => $this->game->getPlayerNameById($activePlayerId),
-                "threesome_type" => $threesomeType,
-                "golden_potatoes" => $goldenPotatoes,
-                "card_ids" => $card_ids,
-                "i18n" => ["threesome_type"],
-            ]
-        );
+        // Also update discard UI for everyone.
+        $topCardId = (int) ($card_ids[array_key_last($card_ids)] ?? 0);
+        $topCard = $topCardId > 0 ? $this->game->cards->getCard($topCardId) : null;
+        $discardTopCard = $topCard
+            ? ["id" => (int) $topCard["id"], "type" => $topCard["type"], "type_arg" => (int) $topCard["type_arg"]]
+            : null;
+        $this->notify->all("cardsDiscarded", '', [
+            "player_id" => $activePlayerId,
+            "card_ids" => $card_ids,
+            "discard_top_card" => $discardTopCard,
+        ]);
+
+        // Log the threesome immediately (even if it later gets interrupted).
+        $this->notify->all("threesomePlayed", clienttranslate('${player_name} plays a threesome of ${threesome_name}'), [
+            "player_id" => $activePlayerId,
+            "player_name" => $this->game->getPlayerNameById($activePlayerId),
+            "threesome_name" => $threesomeName,
+            "card_ids" => $card_ids,
+            "i18n" => ["threesome_name"],
+        ]);
 
         // Trigger reaction phase
         $this->game->globals->set(
@@ -230,6 +256,7 @@ class PlayerTurn extends GameState {
                 "player_id" => $activePlayerId,
                 "card_ids" => $card_ids,
                 "golden_potatoes" => $goldenPotatoes,
+                "threesome_name" => $threesomeName,
             ])
         );
         return ReactionPhase::class;

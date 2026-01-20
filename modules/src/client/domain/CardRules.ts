@@ -64,8 +64,8 @@ export function isInterruptCard(card: Card): boolean {
 
 export type ValidPlayFromSelection =
   | { kind: "single"; cardId: number; label: string }
-  | { kind: "trio_potato"; cardIds: number[]; label: string }
-  | { kind: "trio_value3"; cardIds: number[]; label: string };
+  | { kind: "threesome_potato"; cardIds: number[]; label: string }
+  | { kind: "threesome_value3"; cardIds: number[]; label: string };
 
 export function getValidPlayFromSelection(
   hand: Card[] | undefined,
@@ -98,27 +98,27 @@ export function getValidPlayFromSelection(
   const wildcards = selected.filter((c) => c.type === "wildcard");
   const potatoes = selected.filter((c) => c.type === "potato");
 
-  // 3 wildcards => trio of french fries
+  // 3 wildcards => threesome of french fries
   if (wildcards.length === 3) {
-    const label = _("Play trio of ${trio_name}").replace("${trio_name}", _("french fries"));
-    return { kind: "trio_potato", cardIds: selectedCardIds.slice(), label };
+    const label = _("Play threesome of ${threesome_name}").replace("${threesome_name}", _("french fries"));
+    return { kind: "threesome_potato", cardIds: selectedCardIds.slice(), label };
   }
 
-  // Potato trio with 0-2 wildcards (potatoes must share the same name)
+  // Potato threesome with 0-2 wildcards (potatoes must share the same name)
   if (potatoes.length + wildcards.length === 3 && wildcards.length <= 2 && potatoes.length >= 1) {
     const potatoNames = potatoes.map((c) => decodeCardTypeArg(c.type_arg || 0).name_index);
     const uniquePotatoNames = Array.from(new Set(potatoNames));
     if (uniquePotatoNames.length === 1) {
-      const trioName = getCardName(potatoes[0]);
-      const label = _("Play trio of ${trio_name}").replace("${trio_name}", trioName);
-      return { kind: "trio_potato", cardIds: selectedCardIds.slice(), label };
+      const threesomeName = getCardName(potatoes[0]);
+      const label = _("Play threesome of ${threesome_name}").replace("${threesome_name}", threesomeName);
+      return { kind: "threesome_potato", cardIds: selectedCardIds.slice(), label };
     }
   }
 
   // 3 cards of any type with value == 3 each
   const allValue3 = selected.every((c) => getCardValue(c) === 3);
   if (allValue3) {
-    return { kind: "trio_value3", cardIds: selectedCardIds.slice(), label: _("Play trio") };
+    return { kind: "threesome_value3", cardIds: selectedCardIds.slice(), label: _("Play threesome") };
   }
 
   return null;

@@ -26,21 +26,29 @@ class ReactionPhase extends GameState {
      * Called when entering reaction phase
      */
     public function onEnteringState(int $activePlayerId) {
-        // Set 3-second timer for all players
+        // In MULTIPLE_ACTIVE_PLAYER states, the injected $activePlayerId is not reliable.
+        // Use reaction_data to identify the player who triggered the reaction window.
+        $reactionData = $this->game->globals->get("reaction_data");
+        $data = unserialize($reactionData);
+        $targetPlayerId = (int) ($data["player_id"] ?? $activePlayerId);
+
+        // Give a short window for reactions (UI uses 5 seconds)
         $players = $this->game->getCollectionFromDb("SELECT player_id FROM player");
         foreach ($players as $player) {
-            $this->game->giveExtraTime($player["player_id"], 3);
+            $this->game->giveExtraTime($player["player_id"], 5);
         }
 
         // Set a flag to track if any interrupt was played
         $this->game->setGameStateValue("interrupt_played", 0); // 0 = no interrupt, 1 = interrupt played
+        // Track whether we've already applied post-reaction effects (some transitions bypass onLeavingState).
+        $this->game->globals->set("reaction_effects_applied", "0");
 
         // In MULTIPLE_ACTIVE_PLAYER state, we need to explicitly set which players are active
         // All players EXCEPT the one who played the card can react
         $activePlayers = [];
         foreach ($players as $player) {
             $playerId = (int) $player["player_id"];
-            if ($playerId != $activePlayerId) {
+            if ($playerId != $targetPlayerId) {
                 $activePlayers[] = $playerId;
             }
         }
@@ -50,6 +58,59 @@ class ReactionPhase extends GameState {
         $this->game->gamestate->setPlayersMultiactive($activePlayers, "", true);
 
         return null;
+    }
+
+    private function applyPostReactionEffects(bool $interruptPlayed, bool $isActionCard): void {
+        if ($this->game->globals->get("reaction_effects_applied") === "1") {
+            return;
+        }
+        $this->game->globals->set("reaction_effects_applied", "1");
+
+        $reactionData = $this->game->globals->get("reaction_data");
+        $data = unserialize($reactionData);
+
+        if (!$interruptPlayed) {
+            // Threesome: award golden potatoes only after reaction phase completes.
+            if (($data["type"] ?? "") === "threesome") {
+                $targetPlayerId = (int) ($data["player_id"] ?? 0);
+                $goldenPotatoes = (int) ($data["golden_potatoes"] ?? 0);
+
+                if ($targetPlayerId > 0 && $goldenPotatoes > 0) {
+                    $this->game->updateGoldenPotatoes($targetPlayerId, $goldenPotatoes);
+                    $this->notify->all(
+                        "threesomeScored",
+                        clienttranslate('${player_name} gains ${golden_potatoes} golden potatoes'),
+                        [
+                            "player_id" => $targetPlayerId,
+                            "player_name" => $this->game->getPlayerNameById($targetPlayerId),
+                            "golden_potatoes" => $goldenPotatoes,
+                        ]
+                    );
+                }
+            }
+
+            // Regular single card: move it to discard now that reactions are complete.
+            if (($data["type"] ?? "") === "card") {
+                $cardId = (int) ($data["card_id"] ?? 0);
+                if ($cardId > 0) {
+                    $playedCard = $this->game->cards->getCard($cardId);
+                    if ($playedCard) {
+                        $this->game->cards->moveCard($cardId, "discard");
+                        $this->game->notify->all("cardMovedToDiscard", '', [
+                            "player_id" => (int) ($data["player_id"] ?? 0),
+                            "card_id" => $cardId,
+                            "card_type" => $playedCard["type"],
+                            "card_type_arg" => isset($playedCard["type_arg"]) ? (int) $playedCard["type_arg"] : null,
+                        ]);
+                    }
+                }
+            }
+        } else {
+            // If an action card was interrupted, clear pending data so we don't carry stale selections.
+            if ($isActionCard) {
+                $this->game->globals->set("action_card_data", "");
+            }
+        }
     }
 
     /**
@@ -247,11 +308,9 @@ class ReactionPhase extends GameState {
         $interruptingPlayerName = $this->game->getPlayerNameById($interruptingPlayerId);
 
         if ($data["type"] == "threesome") {
-            // Cancel threesome - cards already in discard, but reverse golden potatoes
-            // Get the amount that was awarded (stored in reaction data or default to 3)
-            $goldenPotatoesAwarded = $data["golden_potatoes"] ?? 3;
-            // Reverse golden potatoes and update score
-            $this->game->updateGoldenPotatoes($targetPlayerId, -$goldenPotatoesAwarded);
+            // Cancel threesome - cards are already in discard.
+            // Golden potatoes are awarded only after the reaction phase completes,
+            // so there is nothing to reverse here.
             $this->notify->all(
                 "threesomeCancelled",
                 clienttranslate('${interrupting_player} cancels ${target_player}\'s threesome with ${interrupt_card}'),
@@ -299,27 +358,27 @@ class ReactionPhase extends GameState {
         $data = unserialize($reactionData);
         $isActionCard = ($data["type"] ?? "") == "action_card";
 
-        return $this->getNextStateAfterReactions($interruptPlayed, $alarmFlag, $isActionCard);
+        $this->applyPostReactionEffects($interruptPlayed, $isActionCard);
+
+        // Reset flags now that the reaction window is closing.
+        $this->game->setGameStateValue("alarm_flag", 0);
+        $this->game->setGameStateValue("interrupt_played", 0);
+
+        return $this->decideNextStateAfterReactions($interruptPlayed, $alarmFlag, $isActionCard);
     }
 
-    private function getNextStateAfterReactions(bool $interruptPlayed, bool $alarmFlag, bool $isActionCard)
+    /**
+     * Decide where to go next (no side effects).
+     */
+    private function decideNextStateAfterReactions(bool $interruptPlayed, bool $alarmFlag, bool $isActionCard)
     {
         if ($interruptPlayed) {
             // Card was interrupted, return to PlayerTurn.
-            // Clear pending action card data so we don't carry stale selections.
-            if ($isActionCard) {
-                $this->game->globals->set("action_card_data", "");
-            }
-            $this->game->setGameStateValue("alarm_flag", 0);
-            $this->game->setGameStateValue("interrupt_played", 0);
             return PlayerTurn::class;
         }
 
         // Action card: after reaction, we may still need follow-up selection (card / card name).
         if ($isActionCard) {
-            $this->game->setGameStateValue("alarm_flag", 0);
-            $this->game->setGameStateValue("interrupt_played", 0);
-
             $actionCardData = $this->game->globals->get("action_card_data");
             $cardData = unserialize($actionCardData);
             $nameIndex = $cardData["name_index"] ?? 0;
@@ -340,34 +399,13 @@ class ReactionPhase extends GameState {
             return ActionResolution::class;
         }
 
-        // Regular single card: move it to discard now that reactions are complete.
-        // (Threesomes are already moved to discard in PlayerTurn::actPlayThreesome)
-        $reactionData = $this->game->globals->get("reaction_data");
-        $data = unserialize($reactionData);
-        if (($data["type"] ?? "") === "card") {
-            $cardId = (int) ($data["card_id"] ?? 0);
-            if ($cardId > 0) {
-                $playedCard = $this->game->cards->getCard($cardId);
-                if ($playedCard) {
-                    $this->game->cards->moveCard($cardId, "discard");
-                    $this->game->notify->all("cardMovedToDiscard", '', [
-                        "player_id" => (int) ($data["player_id"] ?? 0),
-                        "card_id" => $cardId,
-                        "card_type" => $playedCard["type"],
-                        "card_type_arg" => isset($playedCard["type_arg"]) ? (int) $playedCard["type_arg"] : null,
-                    ]);
-                }
-            }
-        }
-
         // Regular card - if alarm card, end turn
         if ($alarmFlag) {
-            $this->game->setGameStateValue("alarm_flag", 0);
             return NextPlayer::class;
         }
 
-        // Otherwise, return to PlayerTurn to continue
-        return null;
+        // Otherwise (regular card or threesome with no interrupt), return to PlayerTurn to continue
+        return PlayerTurn::class;
     }
 
     /**
@@ -387,7 +425,19 @@ class ReactionPhase extends GameState {
         $data = unserialize($reactionData);
         $isActionCard = ($data["type"] ?? "") == "action_card";
 
-        $nextState = $this->getNextStateAfterReactions($interruptPlayed, $alarmFlag, $isActionCard);
+        $nextState = $this->decideNextStateAfterReactions($interruptPlayed, $alarmFlag, $isActionCard);
+
+        // If this is the last multiactive player, apply post-reaction effects here (some transitions bypass onLeavingState).
+        $activeList = $this->game->gamestate->getActivePlayerList();
+        if (is_string($activeList)) {
+            $activeList = array_values(array_filter(explode(',', $activeList)));
+        }
+        $isLast = is_array($activeList) ? (count($activeList) <= 1) : true;
+        if ($isLast) {
+            $this->applyPostReactionEffects($interruptPlayed, $isActionCard);
+            $this->game->setGameStateValue("alarm_flag", 0);
+            $this->game->setGameStateValue("interrupt_played", 0);
+        }
 
         // Make player inactive and transition if this is the last active player
         // setPlayerNonMultiactive will only transition if this is the last active player
@@ -400,7 +450,28 @@ class ReactionPhase extends GameState {
      * Zombie handling - don't react
      */
     function zombie(int $playerId) {
-        // Zombies don't react
+        // Zombies don't react: behave like a skip so the state cannot stall.
+        $interruptPlayed = $this->game->getGameStateValue("interrupt_played") == 1;
+        $alarmFlag = $this->game->getGameStateValue("alarm_flag") == 1;
+        $reactionData = $this->game->globals->get("reaction_data");
+        $data = unserialize($reactionData);
+        $isActionCard = ($data["type"] ?? "") == "action_card";
+
+        $nextState = $this->decideNextStateAfterReactions($interruptPlayed, $alarmFlag, $isActionCard);
+
+        $activeList = $this->game->gamestate->getActivePlayerList();
+        if (is_string($activeList)) {
+            $activeList = array_values(array_filter(explode(',', $activeList)));
+        }
+        $isLast = is_array($activeList) ? (count($activeList) <= 1) : true;
+        if ($isLast) {
+            $this->applyPostReactionEffects($interruptPlayed, $isActionCard);
+            $this->game->setGameStateValue("alarm_flag", 0);
+            $this->game->setGameStateValue("interrupt_played", 0);
+        }
+
+        $this->game->gamestate->setPlayerNonMultiactive($playerId, $nextState);
+
         return null;
     }
 }

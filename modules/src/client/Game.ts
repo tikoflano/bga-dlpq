@@ -24,6 +24,9 @@ class Game {
   public bga: Bga<DondeLasPapasQuemanGamedatas>;
   private gamedatas: DondeLasPapasQuemanGamedatas;
 
+  // In ReactionPhase we need to avoid double-sending actions (race with auto-skip).
+  private reactionActionSent = false;
+
   // Selected cards for threesome
   private selectedCards: number[] = [];
 
@@ -122,12 +125,14 @@ class Game {
 
   onEnteringState(stateName: string, args: any): void {
     console.log("Entering state: " + stateName, args);
+    if (stateName === "ReactionPhase") this.resetReactionActionSent();
     this.stateHandlers[stateName]?.onEnter?.(args);
   }
 
   onLeavingState(stateName: string): void {
     console.log("Leaving state: " + stateName);
     this.stateHandlers[stateName]?.onLeave?.();
+    if (stateName === "ReactionPhase") this.resetReactionActionSent();
   }
 
   onUpdateActionButtons(stateName: string, args: any): void {
@@ -240,6 +245,21 @@ class Game {
   }
 
   ///////////////////////////////////////////////////
+  //// ReactionPhase helpers
+
+  didSendReactionAction(): boolean {
+    return this.reactionActionSent;
+  }
+
+  markReactionActionSent(): void {
+    this.reactionActionSent = true;
+  }
+
+  resetReactionActionSent(): void {
+    this.reactionActionSent = false;
+  }
+
+  ///////////////////////////////////////////////////
   //// Player's action
 
   onCardClick(card_id: number): void {
@@ -247,6 +267,28 @@ class Game {
 
     const currentState = this.gamedatas.gamestate.name;
     const card = this.gamedatas.hand?.find((c) => c.id === card_id);
+
+    // DiscardPhase: clicking cards should only toggle selection (no server call).
+    if (currentState === "DiscardPhase") {
+      if (!this.bga.gameui.isCurrentPlayerActive()) return;
+      if (!card) return;
+
+      if (this.selectedCards.includes(card_id)) {
+        this.selectedCards = this.selectedCards.filter((id) => id !== card_id);
+      } else {
+        this.selectedCards.push(card_id);
+      }
+
+      this.updateHand(this.gamedatas.hand || []);
+      this.onUpdateActionButtons("DiscardPhase", this.gamedatas.gamestate.args || null);
+      return;
+    }
+
+    // In ReactionPhase, ignore extra clicks after we've already sent a reaction action
+    // (prevents double-sends if the user clicks right as auto-skip fires).
+    if (currentState === "ReactionPhase" && this.didSendReactionAction()) {
+      return;
+    }
 
     // Check if we're in reaction phase and this is an interrupt card
     if (
@@ -256,6 +298,7 @@ class Game {
       isInterruptCard(card)
     ) {
       // Play the interrupt card
+      this.markReactionActionSent();
       const decoded = decodeCardTypeArg(card.type_arg || 0);
       if (decoded.name_index === 1) {
         // "No dude"

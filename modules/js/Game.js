@@ -77,25 +77,25 @@ function getValidPlayFromSelection(hand, selectedCardIds) {
     }
     const wildcards = selected.filter((c) => c.type === "wildcard");
     const potatoes = selected.filter((c) => c.type === "potato");
-    // 3 wildcards => trio of french fries
+    // 3 wildcards => threesome of french fries
     if (wildcards.length === 3) {
-        const label = _("Play trio of ${trio_name}").replace("${trio_name}", _("french fries"));
-        return { kind: "trio_potato", cardIds: selectedCardIds.slice(), label };
+        const label = _("Play threesome of ${threesome_name}").replace("${threesome_name}", _("french fries"));
+        return { kind: "threesome_potato", cardIds: selectedCardIds.slice(), label };
     }
-    // Potato trio with 0-2 wildcards (potatoes must share the same name)
+    // Potato threesome with 0-2 wildcards (potatoes must share the same name)
     if (potatoes.length + wildcards.length === 3 && wildcards.length <= 2 && potatoes.length >= 1) {
         const potatoNames = potatoes.map((c) => decodeCardTypeArg(c.type_arg || 0).name_index);
         const uniquePotatoNames = Array.from(new Set(potatoNames));
         if (uniquePotatoNames.length === 1) {
-            const trioName = getCardName(potatoes[0]);
-            const label = _("Play trio of ${trio_name}").replace("${trio_name}", trioName);
-            return { kind: "trio_potato", cardIds: selectedCardIds.slice(), label };
+            const threesomeName = getCardName(potatoes[0]);
+            const label = _("Play threesome of ${threesome_name}").replace("${threesome_name}", threesomeName);
+            return { kind: "threesome_potato", cardIds: selectedCardIds.slice(), label };
         }
     }
     // 3 cards of any type with value == 3 each
     const allValue3 = selected.every((c) => getCardValue(c) === 3);
     if (allValue3) {
-        return { kind: "trio_value3", cardIds: selectedCardIds.slice(), label: _("Play trio") };
+        return { kind: "threesome_value3", cardIds: selectedCardIds.slice(), label: _("Play threesome") };
     }
     return null;
 }
@@ -351,62 +351,46 @@ class DiscardPhaseState {
         this.game = game;
     }
     onEnter(args) {
-        // Only show UI for the active player
+        // Discard-to-7 UI should be handled via:
+        // - clicking cards in hand to select
+        // - a status-bar button that submits the discard when the selection is valid
+        // So we explicitly remove any legacy UI block (older builds) and just rely on the hand rendering.
+        this.hide();
+        this.game.clearSelectedCards();
+        this.game.updateHand(this.game.getGamedatas().hand || []);
+        this.onUpdateActionButtons(args);
+    }
+    onUpdateActionButtons(args) {
         if (!this.game.bga.gameui.isCurrentPlayerActive())
             return;
-        this.hide();
-        const discardDiv = document.createElement("div");
-        discardDiv.id = "discard-phase-ui";
-        discardDiv.className = "discard-phase";
-        discardDiv.innerHTML = `
-            <h3>Discard Cards</h3>
-            <p>You have ${args.handSize} cards. Discard ${args.cardsToDiscard} to get down to 7.</p>
-            <div id="discard-selection-area"></div>
-            <button id="confirm-discard" disabled>Confirm Discard</button>
-        `;
-        this.game.bga.gameArea.getElement().appendChild(discardDiv);
-        const selectionArea = document.getElementById("discard-selection-area");
-        if (!selectionArea)
-            return;
-        const selectedForDiscard = [];
-        if (args.hand && Array.isArray(args.hand)) {
-            args.hand.forEach((card) => {
-                const cardDiv = document.createElement("div");
-                cardDiv.className = "discard-card";
-                cardDiv.dataset.cardId = card.id.toString();
-                cardDiv.innerHTML = `Card ${card.id}`;
-                cardDiv.addEventListener("click", () => {
-                    if (cardDiv.classList.contains("selected")) {
-                        cardDiv.classList.remove("selected");
-                        const index = selectedForDiscard.indexOf(card.id);
-                        if (index > -1)
-                            selectedForDiscard.splice(index, 1);
-                    }
-                    else {
-                        cardDiv.classList.add("selected");
-                        selectedForDiscard.push(card.id);
-                    }
-                    const confirmBtn = document.getElementById("confirm-discard");
-                    if (confirmBtn) {
-                        confirmBtn.disabled = selectedForDiscard.length < args.cardsToDiscard;
-                    }
-                });
-                selectionArea.appendChild(cardDiv);
-            });
+        // BGA sometimes wraps state args as { args: ... }.
+        const a = args?.args || args || {};
+        this.game.bga.statusBar.removeActionButtons();
+        const handSize = (this.game.getGamedatas().hand || []).length;
+        const selectedCount = this.game.getSelectedCards().length;
+        const cardsToDiscard = Math.max(0, handSize - 7);
+        // Only show the action if the selection would leave exactly 7 cards.
+        if (cardsToDiscard > 0 && selectedCount === cardsToDiscard) {
+            const label = _("Discard ${count} cards").replace("${count}", String(selectedCount));
+            this.game.bga.statusBar.addActionButton(label, () => {
+                const cardIds = this.game.getSelectedCards().slice();
+                // Defensive: only submit if still valid at click-time.
+                if ((this.game.getGamedatas().hand || []).length - cardIds.length !== 7)
+                    return;
+                this.game.bga.actions.performAction("actDiscardCards", { card_ids: cardIds });
+                this.game.clearSelectedCards();
+                this.game.updateHand(this.game.getGamedatas().hand || []);
+                this.game.bga.statusBar.removeActionButtons();
+            }, { color: "primary" });
         }
-        const confirmBtn = document.getElementById("confirm-discard");
-        if (confirmBtn) {
-            confirmBtn.addEventListener("click", () => {
-                if (selectedForDiscard.length >= args.cardsToDiscard) {
-                    this.game.bga.actions.performAction("actDiscardCards", {
-                        card_ids: selectedForDiscard,
-                    });
-                }
-            });
+        else if (a) {
+            // No button: status bar text is enough, per UX requirement.
         }
     }
     onLeave() {
         this.hide();
+        this.game.clearSelectedCards();
+        this.game.updateHand(this.game.getGamedatas().hand || []);
     }
     hide() {
         const discardDiv = document.getElementById("discard-phase-ui");
@@ -472,20 +456,25 @@ class PlayerTurnState {
 class ReactionPhaseState {
     constructor(game) {
         this.game = game;
-        this.timerId = null;
+        this.countdownIntervalId = null;
+        this.autoSkipTimeoutId = null;
     }
     onEnter(_args) {
-        this.startTimer();
+        this.game.resetReactionActionSent();
+        this.maybeStartTimer();
     }
     onLeave() {
         this.stopTimer();
+        this.game.resetReactionActionSent();
         // Best effort: refresh hand to remove interrupt highlighting.
         this.game.updateHand(this.game.getGamedatas().hand || []);
     }
     onUpdateActionButtons(args) {
         // MULTIPLE_ACTIVE_PLAYER: use players.isCurrentPlayerActive()
-        if (!this.game.bga.players.isCurrentPlayerActive())
+        if (!this.game.bga.players.isCurrentPlayerActive()) {
+            this.stopTimer();
             return;
+        }
         this.game.bga.statusBar.removeActionButtons();
         // Refresh hand to highlight interrupt cards
         if (this.game.getGamedatas().hand) {
@@ -493,33 +482,80 @@ class ReactionPhaseState {
         }
         // Add "Skip" button for all active players
         this.game.bga.statusBar.addActionButton(_("Skip"), () => {
-            this.game.bga.actions.performAction("actSkipReaction", {});
-        }, { color: "secondary" });
+            this.sendSkip();
+        }, { color: "secondary", classes: ["dplq-reaction-skip"] });
+        this.maybeStartTimer();
     }
-    startTimer() {
-        // Remove any existing timer first
-        this.stopTimer();
+    maybeStartTimer() {
+        // Defensive: never run the ReactionPhase timer if we've already left the state.
+        if (this.game.getGamedatas().gamestate.name !== "ReactionPhase") {
+            this.stopTimer();
+            return;
+        }
+        if (!this.game.bga.players.isCurrentPlayerActive()) {
+            this.stopTimer();
+            return;
+        }
+        if (this.game.didSendReactionAction()) {
+            this.stopTimer();
+            return;
+        }
+        if (this.countdownIntervalId !== null || this.autoSkipTimeoutId !== null)
+            return;
+        const reactionSeconds = 5;
         const timerDiv = document.createElement("div");
         timerDiv.id = "reaction-timer";
         timerDiv.className = "reaction-timer";
         timerDiv.innerHTML =
-            '<div>Reaction Phase: <span id="timer-countdown">3</span> seconds</div>';
+            `<div>Reaction Phase: <span id="timer-countdown">${reactionSeconds}</span> seconds</div>`;
         this.game.bga.gameArea.getElement().appendChild(timerDiv);
-        let timeLeft = 3;
-        this.timerId = window.setInterval(() => {
-            timeLeft--;
-            const countdownEl = document.getElementById("timer-countdown");
-            if (countdownEl)
-                countdownEl.textContent = timeLeft.toString();
-            if (timeLeft <= 0) {
+        const deadlineMs = Date.now() + reactionSeconds * 1000;
+        let lastShownSeconds = reactionSeconds;
+        this.autoSkipTimeoutId = window.setTimeout(() => {
+            if (this.game.getGamedatas().gamestate.name !== "ReactionPhase")
+                return;
+            if (!this.game.bga.players.isCurrentPlayerActive())
+                return;
+            if (this.game.didSendReactionAction())
+                return;
+            this.sendSkip();
+        }, reactionSeconds * 1000);
+        this.countdownIntervalId = window.setInterval(() => {
+            if (this.game.getGamedatas().gamestate.name !== "ReactionPhase" ||
+                !this.game.bga.players.isCurrentPlayerActive() ||
+                this.game.didSendReactionAction()) {
                 this.stopTimer();
+                return;
             }
-        }, 1000);
+            const msLeft = deadlineMs - Date.now();
+            const secondsLeft = Math.max(0, Math.ceil(msLeft / 1000));
+            if (secondsLeft !== lastShownSeconds) {
+                lastShownSeconds = secondsLeft;
+                const countdownEl = document.getElementById("timer-countdown");
+                if (countdownEl)
+                    countdownEl.textContent = secondsLeft.toString();
+            }
+        }, 100);
+    }
+    sendSkip() {
+        if (this.game.didSendReactionAction())
+            return;
+        if (this.game.getGamedatas().gamestate.name !== "ReactionPhase") {
+            this.stopTimer();
+            return;
+        }
+        this.game.markReactionActionSent();
+        this.game.bga.actions.performAction("actSkipReaction", {});
+        this.stopTimer();
     }
     stopTimer() {
-        if (this.timerId !== null) {
-            clearInterval(this.timerId);
-            this.timerId = null;
+        if (this.countdownIntervalId !== null) {
+            clearInterval(this.countdownIntervalId);
+            this.countdownIntervalId = null;
+        }
+        if (this.autoSkipTimeoutId !== null) {
+            clearTimeout(this.autoSkipTimeoutId);
+            this.autoSkipTimeoutId = null;
         }
         const timerDiv = document.getElementById("reaction-timer");
         if (timerDiv)
@@ -683,11 +719,15 @@ class GameNotifications {
     async notif_threesomePlayed(args) {
         console.log("Threesome played:", args);
         this.game.updateDeckDisplay(Math.max(0, this.game.getGamedatas().deckCount || 0));
-        const gd = this.game.getGamedatas();
-        if (gd.hand) {
-            gd.hand = gd.hand.filter((card) => !args.card_ids.includes(card.id));
-            this.game.updateHand(gd.hand);
+        const playerId = this.asInt(args.player_id);
+        const delta = this.asInt(args.golden_potatoes) ?? 0;
+        if (playerId !== null && delta !== 0) {
+            this.applyGoldenPotatoesDelta(playerId, delta);
         }
+    }
+    async notif_threesomeScored(args) {
+        console.log("Threesome scored:", args);
+        this.game.updateDeckDisplay(Math.max(0, this.game.getGamedatas().deckCount || 0));
         const playerId = this.asInt(args.player_id);
         const delta = this.asInt(args.golden_potatoes) ?? 0;
         if (playerId !== null && delta !== 0) {
@@ -711,11 +751,7 @@ class GameNotifications {
     }
     async notif_threesomeCancelled(args) {
         console.log("Threesome cancelled:", args);
-        const targetPlayerId = this.asInt(args.target_player_id);
-        if (targetPlayerId !== null) {
-            // Cancelled threesome always removes 3 golden potatoes.
-            this.applyGoldenPotatoesDelta(targetPlayerId, -3);
-        }
+        // No golden potatoes to revert: they are awarded only after the reaction phase completes.
     }
     async notif_cardDrawn(args) {
         console.log("Card drawn:", args);
@@ -738,8 +774,32 @@ class GameNotifications {
         this.game.updateDeckDisplay(Math.max(0, this.game.getGamedatas().deckCount || 0));
         const gd = this.game.getGamedatas();
         if (gd.hand) {
-            gd.hand = gd.hand.filter((card) => !args.card_ids.includes(card.id));
+            const discardedIds = new Set();
+            if (Array.isArray(args.card_ids)) {
+                for (const raw of args.card_ids) {
+                    const n = this.asInt(raw);
+                    if (n !== null)
+                        discardedIds.add(n);
+                }
+            }
+            gd.hand = gd.hand.filter((card) => {
+                const id = this.asInt(card.id);
+                // If we can't parse the id, don't accidentally delete the card.
+                if (id === null)
+                    return true;
+                return !discardedIds.has(id);
+            });
             this.game.updateHand(gd.hand);
+        }
+        // Update discard display to show one of the discarded cards as the new top.
+        const top = args.discard_top_card;
+        if (top && typeof top === "object") {
+            const id = this.asInt(top.id);
+            const type = typeof top.type === "string" ? top.type : null;
+            const typeArg = this.asInt(top.type_arg);
+            if (id !== null && type && typeArg !== null) {
+                this.game.updateDiscardDisplay({ id, type, type_arg: typeArg });
+            }
         }
     }
     async notif_turnEnded(args) {
@@ -921,6 +981,8 @@ class GameNotifications {
  */
 class Game {
     constructor(bga) {
+        // In ReactionPhase we need to avoid double-sending actions (race with auto-skip).
+        this.reactionActionSent = false;
         // Selected cards for threesome
         this.selectedCards = [];
         // Latest discarded card (for display)
@@ -996,11 +1058,15 @@ class Game {
     //// Game & client states
     onEnteringState(stateName, args) {
         console.log("Entering state: " + stateName, args);
+        if (stateName === "ReactionPhase")
+            this.resetReactionActionSent();
         this.stateHandlers[stateName]?.onEnter?.(args);
     }
     onLeavingState(stateName) {
         console.log("Leaving state: " + stateName);
         this.stateHandlers[stateName]?.onLeave?.();
+        if (stateName === "ReactionPhase")
+            this.resetReactionActionSent();
     }
     onUpdateActionButtons(stateName, args) {
         console.log("onUpdateActionButtons: " + stateName, args);
@@ -1093,17 +1159,50 @@ class Game {
         this.goldenPotatoView.render(count);
     }
     ///////////////////////////////////////////////////
+    //// ReactionPhase helpers
+    didSendReactionAction() {
+        return this.reactionActionSent;
+    }
+    markReactionActionSent() {
+        this.reactionActionSent = true;
+    }
+    resetReactionActionSent() {
+        this.reactionActionSent = false;
+    }
+    ///////////////////////////////////////////////////
     //// Player's action
     onCardClick(card_id) {
         console.log("onCardClick", card_id);
         const currentState = this.gamedatas.gamestate.name;
         const card = this.gamedatas.hand?.find((c) => c.id === card_id);
+        // DiscardPhase: clicking cards should only toggle selection (no server call).
+        if (currentState === "DiscardPhase") {
+            if (!this.bga.gameui.isCurrentPlayerActive())
+                return;
+            if (!card)
+                return;
+            if (this.selectedCards.includes(card_id)) {
+                this.selectedCards = this.selectedCards.filter((id) => id !== card_id);
+            }
+            else {
+                this.selectedCards.push(card_id);
+            }
+            this.updateHand(this.gamedatas.hand || []);
+            this.onUpdateActionButtons("DiscardPhase", this.gamedatas.gamestate.args || null);
+            return;
+        }
+        // In ReactionPhase, ignore extra clicks after we've already sent a reaction action
+        // (prevents double-sends if the user clicks right as auto-skip fires).
+        if (currentState === "ReactionPhase" && this.didSendReactionAction()) {
+            return;
+        }
         // Check if we're in reaction phase and this is an interrupt card
         if (currentState === "ReactionPhase" &&
             this.bga.players.isCurrentPlayerActive() &&
             card &&
             isInterruptCard(card)) {
             // Play the interrupt card
+            this.markReactionActionSent();
             const decoded = decodeCardTypeArg(card.type_arg || 0);
             if (decoded.name_index === 1) {
                 // "No dude"

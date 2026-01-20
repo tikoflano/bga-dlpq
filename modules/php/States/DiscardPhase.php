@@ -7,6 +7,7 @@ namespace Bga\Games\DondeLasPapasQueman\States;
 use Bga\GameFramework\StateType;
 use Bga\GameFramework\States\GameState;
 use Bga\GameFramework\States\PossibleAction;
+use Bga\GameFramework\Actions\Types\IntArrayParam;
 use Bga\GameFramework\UserException;
 use Bga\Games\DondeLasPapasQueman\Game;
 
@@ -55,14 +56,18 @@ class DiscardPhase extends GameState
      * Discard cards to get down to 7 or fewer
      */
     #[PossibleAction]
-    public function actDiscardCards(array $card_ids, int $activePlayerId)
+    public function actDiscardCards(#[IntArrayParam] array $card_ids, int $activePlayerId)
     {
         $hand = $this->game->cards->getPlayerHand($activePlayerId);
         $handSize = count($hand);
         $cardsToDiscard = max(0, $handSize - 7);
 
-        if (count($card_ids) < $cardsToDiscard) {
-            throw new UserException(sprintf('You must discard at least %d cards', $cardsToDiscard));
+        if ($cardsToDiscard === 0) {
+            return NextPlayer::class;
+        }
+
+        if (count($card_ids) !== $cardsToDiscard) {
+            throw new UserException(sprintf('You must discard exactly %d cards', $cardsToDiscard));
         }
 
         if (count($card_ids) > $handSize) {
@@ -77,15 +82,36 @@ class DiscardPhase extends GameState
         }
 
         // Move cards to discard
+        $discardedCards = [];
+        $lastDiscardedCard = null;
         foreach ($card_ids as $cardId) {
+            $card = $this->game->cards->getCard($cardId);
+            if ($card) {
+                $cardPublic = [
+                    "id" => (int) $card["id"],
+                    "type" => (string) $card["type"],
+                    "type_arg" => isset($card["type_arg"]) ? (int) $card["type_arg"] : 0,
+                ];
+                $discardedCards[] = $cardPublic;
+                $lastDiscardedCard = $cardPublic;
+            }
             $this->game->cards->moveCard($cardId, 'discard');
         }
 
-        $this->game->notify->all("cardsDiscarded", clienttranslate('${player_name} discards ${count} cards'), [
+        $discardedNames = array_map(function ($c) {
+            $decoded = Game::decodeCardTypeArg((int) ($c["type_arg"] ?? 0));
+            return Game::getCardName((string) ($c["type"] ?? ""), (int) ($decoded["name_index"] ?? 0));
+        }, $discardedCards);
+
+        $this->game->notify->all("cardsDiscarded", clienttranslate('${player_name} discards ${cards}'), [
             "player_id" => $activePlayerId,
             "player_name" => $this->game->getPlayerNameById($activePlayerId),
-            "count" => count($card_ids),
+            "count" => count($card_ids), // kept for client logic / debugging
             "card_ids" => $card_ids,
+            "discarded_cards" => $discardedCards,
+            "cards" => implode(", ", array_filter($discardedNames)),
+            "i18n" => ["cards"],
+            "discard_top_card" => $lastDiscardedCard,
         ]);
 
         // Verify hand size is now 7 or less
@@ -96,7 +122,9 @@ class DiscardPhase extends GameState
             return null;
         }
 
-        // Hand size is good, continue to next player
+        // Hand size is good: return to NextPlayer, but DO NOT draw again.
+        // We entered DiscardPhase because we already drew an end-of-turn card.
+        $this->game->setGameStateValue('skip_draw_flag', 1);
         return NextPlayer::class;
     }
 

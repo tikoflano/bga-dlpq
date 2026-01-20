@@ -153,6 +153,21 @@
 	}
 }
 
+/* Reaction phase: Skip button fills over time */
+.dplq-reaction-skip {
+	background-repeat: no-repeat;
+	background-image: linear-gradient(to right, rgba(255, 107, 107, 0.35), rgba(255, 107, 107, 0.35));
+	background-size: 0% 100%;
+	background-position: left center;
+	animation: dplq-reaction-skip-fill 5s linear forwards;
+}
+
+@keyframes dplq-reaction-skip-fill {
+	to {
+		background-size: 100% 100%;
+	}
+}
+
 /* Golden Potato Cards Area */
 #golden-potato-cards-area {
 	margin: 20px 0;
