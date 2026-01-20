@@ -14,33 +14,31 @@ stateDiagram-v2
         NormalTurn --> [*]
     }
     
-    PlayerTurn --> NextPlayer: End Turn / Empty Hand / Discard & Draw / Skip & Draw (hand ≤7)
+    PlayerTurn --> NextPlayer: End Turn (hand ≤7) / Empty Hand / Discard & Draw
     PlayerTurn --> ReactionPhase: Play Card (no target) / Play Threesome
     PlayerTurn --> TargetSelection: Play Action Card (requires target)
-    PlayerTurn --> DiscardPhase: Skip & Draw (hand >7)
+    PlayerTurn --> DiscardPhase: End Turn (hand >7 after draw)
     
     state TargetSelection {
         [*] --> SelectTargets
         SelectTargets --> [*]
     }
     
-    TargetSelection --> CardSelection: Select Targets (Lend me a buck / Potato Dawan / Papageddon)
-    TargetSelection --> CardNameSelection: Select Targets (Pope Potato)
-    TargetSelection --> ReactionPhase: Select Targets (other cards)
+    TargetSelection --> ReactionPhase: Select Targets
     
     state CardSelection {
         [*] --> SelectCard
         SelectCard --> [*]
     }
     
-    CardSelection --> ReactionPhase: Card Selected
+    CardSelection --> ActionResolution: Card Selected
     
     state CardNameSelection {
         [*] --> SelectCardName
         SelectCardName --> [*]
     }
     
-    CardNameSelection --> ReactionPhase: Card Name Selected
+    CardNameSelection --> ActionResolution: Card Name Selected
     
     state ReactionPhase {
         [*] --> WaitForReactions
@@ -51,7 +49,9 @@ stateDiagram-v2
     }
     
     ReactionPhase --> PlayerTurn: Interrupt Played / Regular Card (no alarm) / Cancelled
-    ReactionPhase --> ActionResolution: Action Card (no interrupt)
+    ReactionPhase --> CardSelection: Action Card (no interrupt, needs card selection)
+    ReactionPhase --> CardNameSelection: Action Card (no interrupt, needs card name selection)
+    ReactionPhase --> ActionResolution: Action Card (no interrupt, no further selection)
     ReactionPhase --> NextPlayer: Alarm Card (no interrupt)
     
     state ActionResolution {
@@ -99,10 +99,18 @@ stateDiagram-v2
     note right of PlayerTurn
         Actions:
         - Play Card
-        - Play Threesome
-        - End Turn
-        - Skip & Draw
+        - Play Threesome (trio)
+        - End Turn (draws card, checks hand size)
         - Discard & Draw (if 1 card)
+        
+        Notes:
+        - Potato cards, wildcards, and interrupt cards
+          ("No dude", "I told you no dude") cannot be played as single cards.
+        - Valid trios are:
+          - 3 potato cards with the same name
+          - Potato trio with 1-2 wildcards (potato name must match)
+          - 3 wildcards (treated as french fries)
+          - 3 cards of any type with value==3 each
     end note
     
     note right of ReactionPhase
@@ -110,6 +118,8 @@ stateDiagram-v2
         can react with interrupt cards:
         - "No dude"
         - "I told you no dude"
+        (Actions are performed by the requesting player;
+        no `playerId` parameter is required from the client.)
     end note
     
     note right of ActionResolution
@@ -128,38 +138,38 @@ stateDiagram-v2
 - **Type**: ACTIVE_PLAYER
 - **Description**: Active player's turn to play cards or take actions
 - **Transitions**:
-  - → NextPlayer: End turn, empty hand auto-draw, skip & draw (hand ≤7)
-  - → ReactionPhase: Play card (no target) or play threesome
+  - → NextPlayer: End turn (hand ≤7 after draw), empty hand auto-draw, discard & draw
+  - → ReactionPhase: Play card (including action cards that don't require a target) or play threesome
   - → TargetSelection: Play action card requiring target
-  - → DiscardPhase: Skip & draw results in hand >7
+  - → DiscardPhase: End turn results in hand >7 after draw
 
 ### ReactionPhase (ID: 20)
 - **Type**: MULTIPLE_ACTIVE_PLAYER
 - **Description**: All players (except card player) can react with interrupt cards
 - **Transitions**:
   - → PlayerTurn: Interrupt played, regular card (no alarm), or cancelled
-  - → ActionResolution: Action card played (no interrupt)
+  - → ActionResolution: Action card played (no interrupt), including action cards that required no target selection
   - → NextPlayer: Alarm card played (no interrupt)
 
 ### TargetSelection (ID: 25)
 - **Type**: ACTIVE_PLAYER
 - **Description**: Select target(s) for action card
 - **Transitions**:
-  - → CardSelection: Cards requiring card selection (Lend me a buck, Potato Dawan, Papageddon)
-  - → CardNameSelection: Pope Potato (requires naming a card)
-  - → ReactionPhase: Other action cards
+  - → ReactionPhase: Target(s) selected (interrupt window before any follow-up selection)
 
 ### CardSelection (ID: 26)
 - **Type**: ACTIVE_PLAYER
 - **Description**: Select a card from target's hand (blind selection)
+- **Notes**:
+  - Selection uses a **0-based position** in the target hand (the server reindexes the hand to avoid gaps/keys).
 - **Transitions**:
-  - → ReactionPhase: Card selected
+  - → ActionResolution: Card selected
 
 ### CardNameSelection (ID: 28)
 - **Type**: ACTIVE_PLAYER
 - **Description**: Name a card type (for Pope Potato)
 - **Transitions**:
-  - → ReactionPhase: Card name selected
+  - → ActionResolution: Card name selected
 
 ### ActionResolution (ID: 27)
 - **Type**: GAME
@@ -200,7 +210,7 @@ stateDiagram-v2
    PlayerTurn → (Play Threesome) → ReactionPhase → (No Interrupt) → PlayerTurn
 
 4. **Hand Size Management Flow**:
-   PlayerTurn → (Skip & Draw) → DiscardPhase → NextPlayer
+   PlayerTurn → (End Turn) → (Draw Card) → DiscardPhase (if hand >7) → NextPlayer
 
 5. **End Game Flow**:
    NextPlayer → (Win Condition) → EndScore → GameEnd

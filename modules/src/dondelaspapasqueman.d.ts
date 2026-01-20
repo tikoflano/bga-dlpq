@@ -22,6 +22,7 @@ interface DondeLasPapasQuemanGamedatas extends Gamedatas<DondeLasPapasQuemanPlay
   hand?: Card[];
   deckCount?: number;
   discardCount?: number;
+  discardTopCard?: Card | null;
   goldenPotatoPileCount?: number;
   players: { [playerId: number]: DondeLasPapasQuemanPlayer };
 }

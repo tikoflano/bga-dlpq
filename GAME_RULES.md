@@ -19,7 +19,7 @@ All potato cards have type `potato` but different names:
 
 - **"papa"** (potatoes)
 - **"papas duquesas"** (duchesses potatos)
-- **"papas fritas"** (fried potatoes)
+- **"papas fritas"** (french fries)
 
 #### Wildcard Cards
 

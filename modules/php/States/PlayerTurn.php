@@ -32,9 +32,16 @@ class PlayerTurn extends GameState {
         // If 0 cards: automatically draw 3, end turn
         if ($handSize == 0) {
             $this->game->cards->pickCards(3, "deck", $activePlayerId);
+
+            // Private: refresh the active player's hand immediately (avoid needing a page refresh).
+            $this->game->notify->player($activePlayerId, "handUpdated", '', [
+                "hand" => array_values($this->game->cards->getPlayerHand($activePlayerId)),
+                "deckCount" => $this->game->cards->countCardInLocation("deck"),
+            ]);
             $this->notify->all("emptyHandDraw", clienttranslate('${player_name} has no cards and draws 3'), [
                 "player_id" => $activePlayerId,
                 "player_name" => $this->game->getPlayerNameById($activePlayerId),
+                "deckCount" => $this->game->cards->countCardInLocation("deck"),
             ]);
             // Mark that we should skip end-of-turn draw
             $this->game->setGameStateValue("skip_draw_flag", 1);
@@ -93,10 +100,17 @@ class PlayerTurn extends GameState {
 
         $this->game->cards->pickCards(3, "deck", $activePlayerId);
 
+        // Private: refresh the active player's hand immediately (avoid needing a page refresh).
+        $this->game->notify->player($activePlayerId, "handUpdated", '', [
+            "hand" => array_values($this->game->cards->getPlayerHand($activePlayerId)),
+            "deckCount" => $this->game->cards->countCardInLocation("deck"),
+        ]);
+
         $this->notify->all("discardAndDraw", clienttranslate('${player_name} discards a card and draws 3'), [
             "player_id" => $activePlayerId,
             "player_name" => $this->game->getPlayerNameById($activePlayerId),
             "card_id" => $card["id"],
+            "deckCount" => $this->game->cards->countCardInLocation("deck"),
         ]);
 
         // Mark that we should skip end-of-turn draw
@@ -124,7 +138,7 @@ class PlayerTurn extends GameState {
 
         $cards = $this->game->cards->getCards($card_ids);
 
-        // Check if it's a type-based threesome (potato cards with same name)
+        // Check if it's a type-based threesome (potato cards with same name + optional wildcards)
         $potatoCards = [];
         $wildcards = [];
         foreach ($cards as $card) {
@@ -140,42 +154,43 @@ class PlayerTurn extends GameState {
         $isTypeBased = false;
 
         // Check type-based threesome
-        if (count($potatoCards) + count($wildcards) == 3 && count($wildcards) <= 2) {
-            // All cards are potato or wildcard, at most 2 wildcards
-            if (count($potatoCards) > 0) {
+        if (count($potatoCards) + count($wildcards) == 3) {
+            // 3 wildcards => trio of french fries
+            if (count($wildcards) == 3) {
+                $isTypeBased = true;
+                $goldenPotatoes = 3;
+            } elseif (count($wildcards) <= 2 && count($potatoCards) > 0) {
+                // Potato trio with 1-2 wildcards; potato cards must share the same name
                 $nameIndexes = array_column($potatoCards, "name_index");
                 $uniqueNames = array_unique($nameIndexes);
                 if (count($uniqueNames) == 1) {
                     // All potato cards have same name
                     $nameIndex = $uniqueNames[0];
                     $isTypeBased = true;
-                    // Rewards: potato=1, duchesses potatoes=2, fried potatoes=3
+                    // Rewards: potato=1, duchesses potatoes=2, french fries=3
                     $goldenPotatoes = match ($nameIndex) {
                         1 => 1, // potato
                         2 => 2, // duchesses potatoes
-                        3 => 3, // fried potatoes
+                        3 => 3, // french fries
                         default => 0,
                     };
                 }
             }
         }
 
-        // Check value-based threesome (if not type-based)
+        // Check value==3 threesome (if not type-based)
         if (!$isTypeBased) {
             $values = [];
             foreach ($cards as $card) {
-                if ($card["type"] == "wildcard") {
-                    throw new UserException("Wildcards cannot be used in value-based threesomes");
-                }
                 $decoded = Game::decodeCardTypeArg((int) $card["type_arg"]);
                 $values[] = $decoded["value"];
             }
             $uniqueValues = array_unique($values);
-            if (count($uniqueValues) == 1) {
-                // All cards have same value
+            if (count($uniqueValues) == 1 && $uniqueValues[0] === 3) {
+                // All cards have value == 3
                 $goldenPotatoes = 1;
             } else {
-                throw new UserException("Invalid threesome: cards must have same type/name or same value");
+                throw new UserException("Invalid threesome: must be a potato trio (with optional wildcards), 3 wildcards, or three value-3 cards");
             }
         }
 
@@ -242,6 +257,14 @@ class PlayerTurn extends GameState {
         $isAlarm = $decoded["isAlarm"];
         $nameIndex = $decoded["name_index"];
 
+        // Potato cards, wildcards, and interrupt cards cannot be played by themselves.
+        if ($card["type"] === "potato" || $card["type"] === "wildcard") {
+            throw new UserException("This card cannot be played by itself");
+        }
+        if ($card["type"] === "action" && in_array($nameIndex, [1, 2])) {
+            throw new UserException("Interrupt cards can only be played as a reaction");
+        }
+
         // Check if this is an action card that requires target selection
         $targetRequired = 0;
         if ($card["type"] == "action") {
@@ -289,11 +312,31 @@ class PlayerTurn extends GameState {
             // Transition to target selection
             return TargetSelection::class;
         } else {
-            // Store card info for reaction phase
-            $this->game->globals->set(
-                "reaction_data",
-                serialize(["type" => "card", "player_id" => $activePlayerId, "card_id" => $card_id, "is_alarm" => $isAlarm])
-            );
+            // Action cards without targets still need to be resolved in ActionResolution.
+            // Treat them as "action_card" so ReactionPhase routes correctly.
+            if ($card["type"] === "action") {
+                $actionCardData = [
+                    "type" => "action",
+                    "player_id" => $activePlayerId,
+                    "card_id" => $card_id,
+                    "card_name" => $cardName,
+                    "name_index" => $nameIndex,
+                    "value" => $decoded["value"],
+                    "is_alarm" => $isAlarm,
+                ];
+                $this->game->globals->set("action_card_data", serialize($actionCardData));
+
+                $this->game->globals->set(
+                    "reaction_data",
+                    serialize(["type" => "action_card", "player_id" => $activePlayerId, "card_id" => $card_id, "is_alarm" => $isAlarm])
+                );
+            } else {
+                // Store regular card info for reaction phase
+                $this->game->globals->set(
+                    "reaction_data",
+                    serialize(["type" => "card", "player_id" => $activePlayerId, "card_id" => $card_id, "is_alarm" => $isAlarm])
+                );
+            }
 
             // If alarm card and not interrupted, end turn
             // (We'll check this after reaction phase)
@@ -307,7 +350,7 @@ class PlayerTurn extends GameState {
     }
 
     /**
-     * End turn explicitly
+     * End turn explicitly - draws a card and checks hand size
      */
     #[PossibleAction]
     public function actEndTurn(int $activePlayerId) {
@@ -316,14 +359,6 @@ class PlayerTurn extends GameState {
             "player_name" => $this->game->getPlayerNameById($activePlayerId),
         ]);
 
-        return NextPlayer::class;
-    }
-
-    /**
-     * Skip turn and draw a card
-     */
-    #[PossibleAction]
-    public function actSkipAndDraw(int $activePlayerId) {
         // Draw 1 card from deck (handle deck exhaustion)
         $drawnCard = $this->game->cards->pickCard('deck', $activePlayerId);
         
@@ -340,7 +375,7 @@ class PlayerTurn extends GameState {
         }
 
         if ($drawnCard) {
-            $this->notify->all("cardDrawn", clienttranslate('${player_name} skips their turn and draws a card'), [
+            $this->notify->all("cardDrawn", clienttranslate('${player_name} draws a card'), [
                 "player_id" => $activePlayerId,
                 "player_name" => $this->game->getPlayerNameById($activePlayerId),
                 "card_id" => $drawnCard['id'],
@@ -353,14 +388,14 @@ class PlayerTurn extends GameState {
             $handSize = count($hand);
 
             if ($handSize > 7) {
-                // Mark that we should skip end-of-turn draw
+                // Mark that we should skip end-of-turn draw in NextPlayer
                 $this->game->setGameStateValue("skip_draw_flag", 1);
                 // Transition to DiscardPhase
                 return DiscardPhase::class;
             }
         }
 
-        // Mark that we should skip end-of-turn draw (since we already drew)
+        // Mark that we should skip end-of-turn draw in NextPlayer (since we already drew)
         $this->game->setGameStateValue("skip_draw_flag", 1);
         return NextPlayer::class;
     }

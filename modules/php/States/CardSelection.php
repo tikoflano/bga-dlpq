@@ -9,7 +9,7 @@ use Bga\GameFramework\States\GameState;
 use Bga\GameFramework\States\PossibleAction;
 use Bga\GameFramework\UserException;
 use Bga\Games\DondeLasPapasQueman\Game;
-use Bga\Games\DondeLasPapasQueman\States\ReactionPhase;
+use Bga\Games\DondeLasPapasQueman\States\ActionResolution;
 
 class CardSelection extends GameState
 {
@@ -58,7 +58,9 @@ class CardSelection extends GameState
         }
 
         // Get target's hand
-        $targetHand = $this->game->cards->getPlayerHand($targetPlayerId);
+        // IMPORTANT: BGA Deck helpers may return arrays keyed by card id.
+        // For "select by position" UIs we need a stable 0..N-1 index order.
+        $targetHand = array_values($this->game->cards->getPlayerHand($targetPlayerId));
         $handSize = count($targetHand);
 
         // Create card back data (don't reveal actual cards, just show positions)
@@ -95,7 +97,8 @@ class CardSelection extends GameState
         }
 
         // Get target's hand
-        $targetHand = $this->game->cards->getPlayerHand($targetPlayerId);
+        // IMPORTANT: Reindex so $cardPosition maps to an actual element.
+        $targetHand = array_values($this->game->cards->getPlayerHand($targetPlayerId));
         
         if ($cardPosition < 0 || $cardPosition >= count($targetHand)) {
             throw new UserException("Invalid card position");
@@ -119,13 +122,16 @@ class CardSelection extends GameState
             "target_player_id" => $targetPlayerId,
             "target_name" => $this->game->getPlayerNameById($targetPlayerId),
             "card_id" => $selectedCardId,
+            // Include full card identity so clients can update hands immediately after resolution.
+            "card_type" => $selectedCard["type"],
+            "card_type_arg" => (int) $selectedCard["type_arg"],
             "card_name" => $cardName,
             "i18n" => ["card_name", "target_name"],
         ]);
 
-        // Transition to reaction phase
-        // Reaction phase will handle interrupts, then transition to action resolution
-        return ReactionPhase::class;
+        // Reaction phase already happened after target selection.
+        // Now resolve the action card effect.
+        return ActionResolution::class;
     }
 
     /**
@@ -137,8 +143,8 @@ class CardSelection extends GameState
         $handSize = $args["handSize"];
 
         if ($handSize == 0) {
-            // No cards to select, go to reaction phase
-            return ReactionPhase::class;
+            // No cards to select, go resolve (will no-op).
+            return ActionResolution::class;
         }
 
         // Select random position

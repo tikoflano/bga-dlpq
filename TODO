@@ -1,0 +1,4 @@
+TODO:
+- Allow closing the card selection dialog, but revert to select target phase
+- Use whiteblocks (https://boardgamearena.com/doc/BGA_Studio_Guidelines)
+- Change layout. Two rows, one for hand other for golden potatoes. Then another column to the right with the deck and discard pile

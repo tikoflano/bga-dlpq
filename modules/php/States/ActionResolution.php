@@ -51,7 +51,17 @@ class ActionResolution extends GameState
 
         // Now that reaction phase is complete and card wasn't interrupted, move it to discard
         if ($cardId > 0) {
+            $playedCard = $this->game->cards->getCard($cardId);
             $this->game->cards->moveCard($cardId, "discard");
+
+            if ($playedCard) {
+                $this->game->notify->all("cardMovedToDiscard", '', [
+                    "player_id" => $activePlayerId,
+                    "card_id" => $cardId,
+                    "card_type" => $playedCard["type"],
+                    "card_type_arg" => isset($playedCard["type_arg"]) ? (int) $playedCard["type_arg"] : null,
+                ]);
+            }
         }
 
         // Resolve action card effect based on name_index
@@ -154,6 +164,8 @@ class ActionResolution extends GameState
             return PlayerTurn::class;
         }
 
+        $stolenCard = $this->game->cards->getCard($selectedCardId);
+
         // Move card from target's hand to active player's hand
         $this->game->cards->moveCard($selectedCardId, "hand", $activePlayerId);
 
@@ -163,6 +175,8 @@ class ActionResolution extends GameState
             "target_player_id" => $targetPlayerId,
             "target_name" => $this->game->getPlayerNameById($targetPlayerId),
             "card_id" => $selectedCardId,
+            "card_type" => $stolenCard["type"] ?? null,
+            "card_type_arg" => isset($stolenCard["type_arg"]) ? (int) $stolenCard["type_arg"] : null,
             "i18n" => ["target_name"],
         ]);
 
@@ -234,9 +248,16 @@ class ActionResolution extends GameState
             }
         }
 
+        // Private: refresh the active player's hand immediately (avoid needing a page refresh).
+        $this->game->notify->player($activePlayerId, "handUpdated", '', [
+            "hand" => array_values($this->game->cards->getPlayerHand($activePlayerId)),
+            "deckCount" => $this->game->cards->countCardInLocation("deck"),
+        ]);
+
         $this->game->notify->all("harryPotato", clienttranslate('${player_name} draws 2 cards'), [
             "player_id" => $activePlayerId,
             "player_name" => $this->game->getPlayerNameById($activePlayerId),
+            "deckCount" => $this->game->cards->countCardInLocation("deck"),
         ]);
 
         // Alarm card - end turn
@@ -376,10 +397,17 @@ class ActionResolution extends GameState
             }
         }
 
+        // Private: refresh the target player's hand immediately (avoid needing a page refresh).
+        $this->game->notify->player($targetPlayerId, "handUpdated", '', [
+            "hand" => array_values($this->game->cards->getPlayerHand($targetPlayerId)),
+            "deckCount" => $this->game->cards->countCardInLocation("deck"),
+        ]);
+
         $this->game->notify->all("potatoOfDestiny", clienttranslate('${target_name} discards their hand and draws 2 cards'), [
             "target_player_id" => $targetPlayerId,
             "target_name" => $this->game->getPlayerNameById($targetPlayerId),
             "i18n" => ["target_name"],
+            "deckCount" => $this->game->cards->countCardInLocation("deck"),
         ]);
 
         return PlayerTurn::class;
@@ -399,6 +427,8 @@ class ActionResolution extends GameState
             return PlayerTurn::class;
         }
 
+        $stolenCard = $this->game->cards->getCard($selectedCardId);
+
         // Move card from target's hand to active player's hand
         $this->game->cards->moveCard($selectedCardId, "hand", $activePlayerId);
 
@@ -408,6 +438,8 @@ class ActionResolution extends GameState
             "target_player_id" => $targetPlayerId,
             "target_name" => $this->game->getPlayerNameById($targetPlayerId),
             "card_id" => $selectedCardId,
+            "card_type" => $stolenCard["type"] ?? null,
+            "card_type_arg" => isset($stolenCard["type_arg"]) ? (int) $stolenCard["type_arg"] : null,
             "i18n" => ["target_name"],
         ]);
 
@@ -437,9 +469,16 @@ class ActionResolution extends GameState
         // Set skip flag for next player
         $this->game->setGameStateValue("skip_next_player", 1);
 
+        // Private: refresh the active player's hand immediately (avoid needing a page refresh).
+        $this->game->notify->player($activePlayerId, "handUpdated", '', [
+            "hand" => array_values($this->game->cards->getPlayerHand($activePlayerId)),
+            "deckCount" => $this->game->cards->countCardInLocation("deck"),
+        ]);
+
         $this->game->notify->all("jumpToTheSide", clienttranslate('${player_name} draws a card and the next player will skip their turn'), [
             "player_id" => $activePlayerId,
             "player_name" => $this->game->getPlayerNameById($activePlayerId),
+            "deckCount" => $this->game->cards->countCardInLocation("deck"),
         ]);
 
         // Alarm card - end turn
@@ -475,6 +514,16 @@ class ActionResolution extends GameState
                 $randomCard = $nextPlayerHand[array_rand($nextPlayerHand)];
                 $this->game->cards->moveCard($randomCard["id"], "hand", $activePlayerId);
 
+                // Private notification to the stealing player: reveal the stolen card so their UI can update immediately.
+                $this->game->notify->player($activePlayerId, "papageddonStealPrivate", '', [
+                    "player_id" => $activePlayerId,
+                    "target_player_id" => $nextPlayerId,
+                    "card_id" => $randomCard["id"],
+                    "card_type" => $randomCard["type"] ?? null,
+                    "card_type_arg" => isset($randomCard["type_arg"]) ? (int) $randomCard["type_arg"] : null,
+                ]);
+
+                // Public notification: do NOT reveal card identity.
                 $this->game->notify->all("papageddonSteal", clienttranslate('${player_name} steals a card from ${target_name}'), [
                     "player_id" => $activePlayerId,
                     "player_name" => $this->game->getPlayerNameById($activePlayerId),

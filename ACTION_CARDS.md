@@ -17,7 +17,7 @@ Each action card has:
 
 - **potato**: 16 copies
 - **duchesses potatoes**: 12 copies
-- **fried potatoes**: 5 copies
+- **french fries**: 5 copies
 
 ### Wildcards
 

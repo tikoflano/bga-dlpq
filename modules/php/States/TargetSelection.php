@@ -86,6 +86,7 @@ class TargetSelection extends GameState
         $actionCardData = $this->game->globals->get("action_card_data");
         $cardData = unserialize($actionCardData);
         $nameIndex = $cardData["name_index"] ?? 0;
+        $cardName = $cardData["card_name"] ?? "";
 
         // Validate target count
         $requiresMultipleTargets = ($nameIndex == 14); // Spider potato
@@ -113,23 +114,37 @@ class TargetSelection extends GameState
         $cardData["target_player_ids"] = $targetPlayerIds;
         $this->game->globals->set("action_card_data", serialize($cardData));
 
-        // Check if card requires card selection (blind card stealing)
-        // Cards that need card selection: 4 (Lend me a buck), 11 (Potato Dawan), 13 (Papageddon)
-        $needsCardSelection = in_array($nameIndex, [4, 11, 13]);
-        
-        // Check if card requires card name selection (Pope Potato)
-        $needsCardNameSelection = ($nameIndex == 7); // Pope Potato
-        
-        if ($needsCardSelection) {
-            // Transition to card selection
-            return CardSelection::class;
-        } elseif ($needsCardNameSelection) {
-            // Transition to card name selection
-            return CardNameSelection::class;
-        } else {
-            // Transition to reaction phase
-            return ReactionPhase::class;
+        // Also store targets in reaction_data so the interruption step has full context.
+        $reactionData = $this->game->globals->get("reaction_data");
+        if ($reactionData) {
+            $data = unserialize($reactionData);
+            if (($data["type"] ?? "") === "action_card") {
+                $data["target_player_ids"] = $targetPlayerIds;
+                $this->game->globals->set("reaction_data", serialize($data));
+            }
         }
+
+        // Log which player(s) were targeted (important for ReactionPhase decisions).
+        // (Especially useful for "Lend me a buck", where the target needs to know they're being targeted before card selection.)
+        $targetNames = array_map(fn ($id) => $this->game->getPlayerNameById((int) $id), $targetPlayerIds);
+        $targetNamesText = implode(", ", array_filter($targetNames));
+        if ($targetNamesText !== "") {
+            $this->game->notify->all(
+                "targetsSelected",
+                clienttranslate('${player_name} targets ${target_name} with ${card_name}'),
+                [
+                    "player_id" => $activePlayerId,
+                    "player_name" => $this->game->getPlayerNameById($activePlayerId),
+                    "target_name" => $targetNamesText,
+                    "card_name" => $cardName,
+                    "i18n" => ["card_name"],
+                ]
+            );
+        }
+
+        // Always allow interruption after choosing targets, before any follow-up selection.
+        // ReactionPhase will route to CardSelection / CardNameSelection / ActionResolution as needed.
+        return ReactionPhase::class;
     }
 
     /**

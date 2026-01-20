@@ -55,7 +55,7 @@ class Game extends \Bga\GameFramework\Table {
 
         // Card types: type stored in card_type, name stored in card_type_arg
         // card_type values: 'potato', 'wildcard', 'action'
-        // For potato cards, card_type_arg stores the name index: 1='potato', 2='duchesses potatoes', 3='fried potatoes'
+        // For potato cards, card_type_arg stores the name index: 1='potato', 2='duchesses potatoes', 3='french fries'
         // For action cards, card_type_arg stores the name index: 1='No dude', 2='I told you no dude', etc.
         //
         // Card data structure: card_type_arg encodes name_index, value, and isAlarm
@@ -69,7 +69,7 @@ class Game extends \Bga\GameFramework\Table {
                 "potato" => [
                     1 => clienttranslate("potato"),
                     2 => clienttranslate("duchesses potatoes"),
-                    3 => clienttranslate("fried potatoes"),
+                    3 => clienttranslate("french fries"),
                 ],
                 "action" => [
                     1 => clienttranslate("No dude"),
@@ -271,6 +271,17 @@ class Game extends \Bga\GameFramework\Table {
         // Get discard count (visible to all)
         $result["discardCount"] = $this->cards->countCardInLocation("discard");
 
+        // Get top card of discard pile (visible to all).
+        // This allows the UI to reconstruct discard display after a page refresh.
+        $topDiscard = $this->getObjectFromDb(
+            "SELECT card_id id, card_type type, card_type_arg type_arg
+             FROM card
+             WHERE card_location = 'discard'
+             ORDER BY card_location_arg DESC, card_id DESC
+             LIMIT 1"
+        );
+        $result["discardTopCard"] = $topDiscard ?: null;
+
         // Get golden potato pile count (visible to all)
         $result["goldenPotatoPileCount"] = $this->cards->countCardInLocation("golden_potato_pile");
 
@@ -336,7 +347,7 @@ class Game extends \Bga\GameFramework\Table {
         // Create cards
         // Total: 106 cards
         // Distribution:
-        // - Potato cards: potato (16), duchesses potatoes (12), fried potatoes (5) = 33
+        // - Potato cards: potato (16), duchesses potatoes (12), french fries (5) = 33
         // - Wildcards: 3
         // - Action cards: No dude (10), I told you no dude (3), Get off the pony (5),
         //   Lend me a buck (10), Runaway potatoes (3), Harry Potato (10), Pope Potato (3),
@@ -366,7 +377,7 @@ class Game extends \Bga\GameFramework\Table {
             ];
         }
 
-        // fried potatoes (name_index=3): 5 cards
+        // french fries (name_index=3): 5 cards
         for ($i = 0; $i < 5; $i++) {
             $cardsToCreate[] = [
                 "type" => "potato",

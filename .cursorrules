@@ -24,3 +24,27 @@
 - **DO NOT use `rm` before rebuilding** - The build process automatically replaces the output files. Just run `npm run build` or `npm run build:ts` directly.
 - PHP files in `modules/php/` do NOT need building - they are used directly
 - Only TypeScript and SCSS source files need compilation
+
+## State Machine Diagram Maintenance
+
+**IMPORTANT**: When making changes to game state files, you MUST update `STATE_MACHINE.md` to keep the diagram accurate.
+
+### When to Update STATE_MACHINE.md:
+
+- After modifying any file in `modules/php/States/` (e.g., `PlayerTurn.php`, `ReactionPhase.php`, `NextPlayer.php`, etc.)
+- When adding, removing, or modifying state transitions
+- When changing state IDs, types, or descriptions
+- When adding or removing possible actions from states
+- When modifying the flow between states
+
+### What to Update:
+
+- State transitions in the mermaid diagram
+- State descriptions and their transitions
+- Key game flow paths section
+- Notes explaining state behaviors
+
+### Files That Trigger This Requirement:
+
+- `modules/php/States/*.php` - Any state class file
+- `modules/php/Game.php` - If state machine initialization changes

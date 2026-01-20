@@ -9,6 +9,7 @@ use Bga\GameFramework\States\GameState;
 use Bga\GameFramework\States\PossibleAction;
 use Bga\GameFramework\UserException;
 use Bga\Games\DondeLasPapasQueman\Game;
+use Bga\Games\DondeLasPapasQueman\States\ActionResolution;
 
 class CardNameSelection extends GameState
 {
@@ -35,7 +36,7 @@ class CardNameSelection extends GameState
         $cardNames["potato"] = [
             1 => Game::getCardName("potato", 1), // potato
             2 => Game::getCardName("potato", 2), // duchesses potatoes
-            3 => Game::getCardName("potato", 3), // fried potatoes
+            3 => Game::getCardName("potato", 3), // french fries
         ];
         
         // Action cards (excluding interrupts which can't be stolen)
@@ -96,8 +97,9 @@ class CardNameSelection extends GameState
             "i18n" => ["card_name"],
         ]);
 
-        // Transition to reaction phase
-        return ReactionPhase::class;
+        // Reaction phase already happened after target selection.
+        // Now resolve the action card effect.
+        return ActionResolution::class;
     }
 
     /**
