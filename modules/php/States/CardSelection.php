@@ -11,10 +11,8 @@ use Bga\GameFramework\UserException;
 use Bga\Games\DondeLasPapasQueman\Game;
 use Bga\Games\DondeLasPapasQueman\States\ActionResolution;
 
-class CardSelection extends GameState
-{
-    function __construct(protected Game $game)
-    {
+class CardSelection extends GameState {
+    function __construct(protected Game $game) {
         parent::__construct(
             $game,
             id: 26,
@@ -27,10 +25,9 @@ class CardSelection extends GameState
     /**
      * Get arguments for card selection
      */
-    public function getArgs(): array
-    {
+    public function getArgs(): array {
         $activePlayerId = $this->game->getActivePlayerId();
-        if ($activePlayerId === null || $activePlayerId === '') {
+        if ($activePlayerId === null || $activePlayerId === "") {
             return [
                 "targetPlayerId" => 0,
                 "targetPlayerName" => "",
@@ -42,11 +39,73 @@ class CardSelection extends GameState
 
         // Get the action card data to find target
         $actionCardData = $this->game->globals->get("action_card_data");
-        $cardData = unserialize($actionCardData);
+        $cardData = is_string($actionCardData) && $actionCardData !== "" ? @unserialize($actionCardData) : null;
+        if (!is_array($cardData)) {
+            // Try to reconstruct minimal action-card context from reaction_data.
+            $reactionData = $this->game->globals->get("reaction_data");
+            $reaction = is_string($reactionData) && $reactionData !== "" ? @unserialize($reactionData) : null;
+            if (is_array($reaction) && ($reaction["type"] ?? "") === "action_card") {
+                $originPlayerId = (int) ($reaction["player_id"] ?? 0);
+                $cardId = (int) ($reaction["card_id"] ?? 0);
+                $isAlarm = (bool) ($reaction["is_alarm"] ?? false);
+
+                if ($originPlayerId > 0 && $cardId > 0) {
+                    $playedCard = $this->game->cards->getCard($cardId);
+                    if ($playedCard && isset($playedCard["type_arg"])) {
+                        $decoded = Game::decodeCardTypeArg((int) $playedCard["type_arg"]);
+                        $nameIndex = (int) ($decoded["name_index"] ?? 0);
+
+                        $cardData = [
+                            "type" => "action",
+                            "player_id" => $originPlayerId,
+                            "card_id" => $cardId,
+                            "name_index" => $nameIndex,
+                            "is_alarm" => $isAlarm,
+                        ];
+
+                        // Papageddon (name_index=13): implicit target is the "next player" in the current order.
+                        if ($nameIndex === 13) {
+                            $nextPlayerTable = $this->game->getNextPlayerTable();
+                            $computedTargetId = (int) ($nextPlayerTable[$originPlayerId] ?? 0);
+                            if ($computedTargetId > 0 && $computedTargetId !== $originPlayerId) {
+                                $cardData["target_player_ids"] = [$computedTargetId];
+                            }
+                        }
+
+                        // Persist reconstructed data so ActionResolution can run.
+                        $this->game->globals->set("action_card_data", serialize($cardData));
+                    }
+                }
+            }
+
+            if (!is_array($cardData)) {
+                return [
+                    "targetPlayerId" => 0,
+                    "targetPlayerName" => "",
+                    "handSize" => 0,
+                    "cardBacks" => [],
+                ];
+            }
+        }
         $targetPlayerIds = $cardData["target_player_ids"] ?? [];
 
         // For card selection, we only need one target (the first one)
         $targetPlayerId = !empty($targetPlayerIds) ? (int) $targetPlayerIds[0] : 0;
+
+        // Backward-compatible fallback:
+        // Older saved states / in-progress games may not have populated target_player_ids for implicit-target cards.
+        // Papageddon (name_index=13): target is the "next player" in the current turn order (before reversal).
+        if ($targetPlayerId === 0 && ((int) ($cardData["name_index"] ?? 0)) === 13) {
+            $originPlayerId = (int) ($cardData["player_id"] ?? $activePlayerId);
+            $nextPlayerTable = $this->game->getNextPlayerTable();
+            $computedTargetId = (int) ($nextPlayerTable[$originPlayerId] ?? 0);
+            if ($computedTargetId > 0 && $computedTargetId !== $originPlayerId) {
+                $targetPlayerId = $computedTargetId;
+                // Persist for the rest of the resolution pipeline.
+                $cardData["target_player_ids"] = [$computedTargetId];
+                $this->game->globals->set("action_card_data", serialize($cardData));
+            }
+        }
 
         if ($targetPlayerId == 0) {
             return [
@@ -68,13 +127,13 @@ class CardSelection extends GameState
         foreach ($targetHand as $index => $card) {
             $cardBacks[] = [
                 "position" => $index, // Position in hand
-                "card_id" => $card["id"], // Store ID for selection, but don't reveal card data
             ];
         }
 
         return [
             "targetPlayerId" => $targetPlayerId,
             "targetPlayerName" => $this->game->getPlayerNameById($targetPlayerId),
+            "targetPlayerColor" => $this->game->getPlayerColorById($targetPlayerId),
             "handSize" => $handSize,
             "cardBacks" => $cardBacks,
         ];
@@ -84,11 +143,50 @@ class CardSelection extends GameState
      * Select a card from target's hand (by position)
      */
     #[PossibleAction]
-    public function actSelectCard(int $cardPosition, int $activePlayerId)
-    {
+    public function actSelectCard(int $cardPosition, int $activePlayerId) {
         // Get the action card data
         $actionCardData = $this->game->globals->get("action_card_data");
-        $cardData = unserialize($actionCardData);
+        $cardData = is_string($actionCardData) && $actionCardData !== "" ? @unserialize($actionCardData) : null;
+        if (!is_array($cardData)) {
+            // Attempt to reconstruct from reaction_data (same approach as getArgs).
+            $reactionData = $this->game->globals->get("reaction_data");
+            $reaction = is_string($reactionData) && $reactionData !== "" ? @unserialize($reactionData) : null;
+            if (is_array($reaction) && ($reaction["type"] ?? "") === "action_card") {
+                $originPlayerId = (int) ($reaction["player_id"] ?? 0);
+                $cardId = (int) ($reaction["card_id"] ?? 0);
+                $isAlarm = (bool) ($reaction["is_alarm"] ?? false);
+
+                if ($originPlayerId > 0 && $cardId > 0) {
+                    $playedCard = $this->game->cards->getCard($cardId);
+                    if ($playedCard && isset($playedCard["type_arg"])) {
+                        $decoded = Game::decodeCardTypeArg((int) $playedCard["type_arg"]);
+                        $nameIndex = (int) ($decoded["name_index"] ?? 0);
+
+                        $cardData = [
+                            "type" => "action",
+                            "player_id" => $originPlayerId,
+                            "card_id" => $cardId,
+                            "name_index" => $nameIndex,
+                            "is_alarm" => $isAlarm,
+                        ];
+
+                        if ($nameIndex === 13) {
+                            $nextPlayerTable = $this->game->getNextPlayerTable();
+                            $computedTargetId = (int) ($nextPlayerTable[$originPlayerId] ?? 0);
+                            if ($computedTargetId > 0 && $computedTargetId !== $originPlayerId) {
+                                $cardData["target_player_ids"] = [$computedTargetId];
+                            }
+                        }
+
+                        $this->game->globals->set("action_card_data", serialize($cardData));
+                    }
+                }
+            }
+
+            if (!is_array($cardData)) {
+                throw new UserException("Invalid action card data");
+            }
+        }
         $targetPlayerIds = $cardData["target_player_ids"] ?? [];
         $targetPlayerId = !empty($targetPlayerIds) ? (int) $targetPlayerIds[0] : 0;
 
@@ -99,7 +197,7 @@ class CardSelection extends GameState
         // Get target's hand
         // IMPORTANT: Reindex so $cardPosition maps to an actual element.
         $targetHand = array_values($this->game->cards->getPlayerHand($targetPlayerId));
-        
+
         if ($cardPosition < 0 || $cardPosition >= count($targetHand)) {
             throw new UserException("Invalid card position");
         }
@@ -112,23 +210,6 @@ class CardSelection extends GameState
         $cardData["selected_card_id"] = $selectedCardId;
         $this->game->globals->set("action_card_data", serialize($cardData));
 
-        // Notify all players (reveal the card that was selected)
-        $decoded = Game::decodeCardTypeArg((int) $selectedCard["type_arg"]);
-        $cardName = Game::getCardName($selectedCard["type"], $decoded["name_index"]);
-        
-        $this->game->notify->all("cardSelected", clienttranslate('${player_name} selects ${card_name} from ${target_name}\'s hand'), [
-            "player_id" => $activePlayerId,
-            "player_name" => $this->game->getPlayerNameById($activePlayerId),
-            "target_player_id" => $targetPlayerId,
-            "target_name" => $this->game->getPlayerNameById($targetPlayerId),
-            "card_id" => $selectedCardId,
-            // Include full card identity so clients can update hands immediately after resolution.
-            "card_type" => $selectedCard["type"],
-            "card_type_arg" => (int) $selectedCard["type_arg"],
-            "card_name" => $cardName,
-            "i18n" => ["card_name", "target_name"],
-        ]);
-
         // Reaction phase already happened after target selection.
         // Now resolve the action card effect.
         return ActionResolution::class;
@@ -137,8 +218,7 @@ class CardSelection extends GameState
     /**
      * Zombie handling - select random card
      */
-    function zombie(int $playerId)
-    {
+    function zombie(int $playerId) {
         $args = $this->getArgs();
         $handSize = $args["handSize"];
 

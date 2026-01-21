@@ -4,10 +4,16 @@ import type { ClientStateHandler } from "./ClientStateHandler";
 export class ReactionPhaseState implements ClientStateHandler {
   private countdownIntervalId: number | null = null;
   private autoSkipTimeoutId: number | null = null;
+  private skipButton: HTMLButtonElement | null = null;
+  private reactionTimeSeconds: number = 7; // Default, will be updated from args
 
   constructor(private game: Game) {}
 
-  onEnter(_args: any): void {
+  onEnter(args: any): void {
+    // Get reaction time from args if available
+    if (args && typeof args.reaction_time_seconds === "number") {
+      this.reactionTimeSeconds = args.reaction_time_seconds;
+    }
     this.game.resetReactionActionSent();
     this.maybeStartTimer();
   }
@@ -26,6 +32,11 @@ export class ReactionPhaseState implements ClientStateHandler {
       return;
     }
 
+    // Update reaction time from args if available
+    if (args && typeof args.reaction_time_seconds === "number") {
+      this.reactionTimeSeconds = args.reaction_time_seconds;
+    }
+
     this.game.bga.statusBar.removeActionButtons();
 
     // Refresh hand to highlight interrupt cards
@@ -34,12 +45,12 @@ export class ReactionPhaseState implements ClientStateHandler {
     }
 
     // Add "Skip" button for all active players
-    this.game.bga.statusBar.addActionButton(
+    this.skipButton = this.game.bga.statusBar.addActionButton(
       _("Skip"),
       () => {
         this.sendSkip();
       },
-      { color: "secondary", classes: ["dplq-reaction-skip"] },
+      { color: "primary" },
     );
 
     this.maybeStartTimer();
@@ -61,16 +72,15 @@ export class ReactionPhaseState implements ClientStateHandler {
     }
     if (this.countdownIntervalId !== null || this.autoSkipTimeoutId !== null) return;
 
-    const reactionSeconds = 5;
-    const timerDiv = document.createElement("div");
-    timerDiv.id = "reaction-timer";
-    timerDiv.className = "reaction-timer";
-    timerDiv.innerHTML =
-      `<div>Reaction Phase: <span id="timer-countdown">${reactionSeconds}</span> seconds</div>`;
-    this.game.bga.gameArea.getElement().appendChild(timerDiv);
-
+    // Use the variable reaction time instead of hardcoded 5
+    const reactionSeconds = this.reactionTimeSeconds;
     const deadlineMs = Date.now() + reactionSeconds * 1000;
     let lastShownSeconds = reactionSeconds;
+
+    // Set initial button text to show countdown
+    if (this.skipButton) {
+      this.skipButton.textContent = _("Skip") + ` (${reactionSeconds})`;
+    }
 
     this.autoSkipTimeoutId = window.setTimeout(() => {
       if (this.game.getGamedatas().gamestate.name !== "ReactionPhase") return;
@@ -93,8 +103,15 @@ export class ReactionPhaseState implements ClientStateHandler {
       const secondsLeft = Math.max(0, Math.ceil(msLeft / 1000));
       if (secondsLeft !== lastShownSeconds) {
         lastShownSeconds = secondsLeft;
-        const countdownEl = document.getElementById("timer-countdown");
-        if (countdownEl) countdownEl.textContent = secondsLeft.toString();
+
+        // Update skip button text with countdown
+        if (this.skipButton) {
+          if (secondsLeft > 0) {
+            this.skipButton.textContent = _("Skip") + ` (${secondsLeft})`;
+          } else {
+            this.skipButton.textContent = _("Skip");
+          }
+        }
       }
     }, 100);
   }
@@ -119,8 +136,6 @@ export class ReactionPhaseState implements ClientStateHandler {
       clearTimeout(this.autoSkipTimeoutId);
       this.autoSkipTimeoutId = null;
     }
-    const timerDiv = document.getElementById("reaction-timer");
-    if (timerDiv) timerDiv.remove();
+    this.skipButton = null;
   }
 }
-

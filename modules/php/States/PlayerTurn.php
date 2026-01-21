@@ -30,6 +30,13 @@ class PlayerTurn extends GameState {
         $hand = $this->game->cards->getPlayerHand($activePlayerId);
         $handSize = count($hand);
 
+        // Set flag to indicate this is the start of the turn
+        // Only set it if it's not already 0 (which would mean we're returning mid-turn)
+        $currentFlag = $this->game->getGameStateValue("turn_start_flag");
+        if ($currentFlag != 0) {
+            $this->game->setGameStateValue("turn_start_flag", 1);
+        }
+
         // If 0 cards: automatically draw 3, end turn
         if ($handSize == 0) {
             $this->game->cards->pickCards(3, "deck", $activePlayerId);
@@ -79,7 +86,9 @@ class PlayerTurn extends GameState {
         ];
 
         // If 1 card at start of turn, offer discard and draw option
-        if ($handSize == 1) {
+        // Only allow this at the start of the turn, not if player runs out of cards mid-turn
+        $isStartOfTurn = $this->game->getGameStateValue("turn_start_flag") == 1;
+        if ($handSize == 1 && $isStartOfTurn) {
             $result["canDiscardAndDraw"] = true;
         }
 
@@ -96,7 +105,13 @@ class PlayerTurn extends GameState {
             throw new UserException("You can only discard and draw when you have exactly 1 card");
         }
 
-        $card = $hand[0];
+        // Get the first (and only) card from the hand
+        // Use array_values to ensure 0-indexed array, then get first element
+        $handArray = array_values($hand);
+        if (empty($handArray)) {
+            throw new UserException("Hand is empty");
+        }
+        $card = $handArray[0];
         $this->game->cards->moveCard($card["id"], "discard");
 
         $this->game->cards->pickCards(3, "deck", $activePlayerId);
@@ -216,6 +231,9 @@ class PlayerTurn extends GameState {
             throw new UserException("Invalid threesome");
         }
 
+        // Clear turn start flag since player has played cards
+        $this->game->setGameStateValue("turn_start_flag", 0);
+
         // Move cards to discard
         foreach ($cards as $card) {
             $this->game->cards->moveCard($card["id"], "discard");
@@ -298,6 +316,9 @@ class PlayerTurn extends GameState {
             $targetRequired = Game::actionCardRequiresTarget($nameIndex);
         }
 
+        // Clear turn start flag since player has played a card
+        $this->game->setGameStateValue("turn_start_flag", 0);
+
         // Don't move card to discard yet - it could be interrupted
         // The card will be moved to discard in ActionResolution after the reaction phase
         // For now, just notify that the card is being played
@@ -351,6 +372,16 @@ class PlayerTurn extends GameState {
                     "value" => $decoded["value"],
                     "is_alarm" => $isAlarm,
                 ];
+
+                // Some action cards have an implicit target (no target-selection step).
+                // Papageddon (name_index=13): steal from the player who is next *before* turn order reversal.
+                if ($nameIndex === 13) {
+                    $nextPlayerTable = $this->game->getNextPlayerTable();
+                    $nextPlayerId = (int) ($nextPlayerTable[$activePlayerId] ?? 0);
+                    $actionCardData["target_player_ids"] =
+                        ($nextPlayerId > 0 && $nextPlayerId !== $activePlayerId) ? [$nextPlayerId] : [];
+                }
+
                 $this->game->globals->set("action_card_data", serialize($actionCardData));
 
                 $this->game->globals->set(

@@ -45,6 +45,7 @@ class Game extends \Bga\GameFramework\Table {
             "alarm_flag" => 12,
             "interrupt_played" => 13,
             "skip_next_player" => 14,
+            "turn_start_flag" => 15,
         ]);
 
         $this->playerEnergy = $this->counterFactory->createPlayerCounter("energy");

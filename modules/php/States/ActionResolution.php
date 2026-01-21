@@ -308,6 +308,8 @@ class ActionResolution extends GameState
                 "target_name" => $this->game->getPlayerNameById($targetPlayerId),
                 "card_name" => $cardName,
                 "card_id" => $cardToSteal["id"],
+                "card_type" => $cardToSteal["type"] ?? null,
+                "card_type_arg" => isset($cardToSteal["type_arg"]) ? (int) $cardToSteal["type_arg"] : null,
                 "i18n" => ["card_name", "target_name"],
             ]);
         } else {
@@ -490,9 +492,16 @@ class ActionResolution extends GameState
      */
     private function resolvePapageddon(int $activePlayerId, array $cardData)
     {
-        // Get current next player before reversing order
-        $nextPlayerTable = $this->game->getNextPlayerTable();
-        $nextPlayerId = $nextPlayerTable[$activePlayerId] ?? 0;
+        // Determine the target player (who was "next" when the card was played).
+        // PlayerTurn stores this into action_card_data for implicit-target cards.
+        $targetPlayerIds = $cardData["target_player_ids"] ?? [];
+        $targetPlayerId = !empty($targetPlayerIds) ? (int) $targetPlayerIds[0] : 0;
+
+        // Fallback (should not happen): derive from current next-player table.
+        if ($targetPlayerId <= 0 || $targetPlayerId === $activePlayerId) {
+            $nextPlayerTable = $this->game->getNextPlayerTable();
+            $targetPlayerId = (int) ($nextPlayerTable[$activePlayerId] ?? 0);
+        }
 
         // Reverse turn order
         $players = $this->game->getCollectionFromDb("SELECT player_id FROM player ORDER BY player_no");
@@ -507,29 +516,39 @@ class ActionResolution extends GameState
             "player_name" => $this->game->getPlayerNameById($activePlayerId),
         ]);
 
-        // Steal random card from the player who was next (before reversal)
-        if ($nextPlayerId > 0 && $nextPlayerId != $activePlayerId) {
-            $nextPlayerHand = $this->game->cards->getPlayerHand($nextPlayerId);
-            if (!empty($nextPlayerHand)) {
-                $randomCard = $nextPlayerHand[array_rand($nextPlayerHand)];
-                $this->game->cards->moveCard($randomCard["id"], "hand", $activePlayerId);
+        // Steal 1 card from the target player (blind selection in UI).
+        if ($targetPlayerId > 0 && $targetPlayerId !== $activePlayerId) {
+            $targetHand = $this->game->cards->getPlayerHand($targetPlayerId);
+            if (!empty($targetHand)) {
+                $selectedCardId = isset($cardData["selected_card_id"]) ? (int) $cardData["selected_card_id"] : 0;
 
-                // Private notification to the stealing player: reveal the stolen card so their UI can update immediately.
+                // Deck helper usually returns an array keyed by card id.
+                $selectedCard = ($selectedCardId > 0 && isset($targetHand[$selectedCardId])) ? $targetHand[$selectedCardId] : null;
+
+                // Fallback if something went wrong with selection: steal a random card.
+                if ($selectedCard === null) {
+                    $selectedCard = $targetHand[array_rand($targetHand)];
+                    $selectedCardId = (int) $selectedCard["id"];
+                }
+
+                $this->game->cards->moveCard($selectedCardId, "hand", $activePlayerId);
+
+                // Private notification to the stealing player: reveal card identity so their UI can update immediately.
                 $this->game->notify->player($activePlayerId, "papageddonStealPrivate", '', [
                     "player_id" => $activePlayerId,
-                    "target_player_id" => $nextPlayerId,
-                    "card_id" => $randomCard["id"],
-                    "card_type" => $randomCard["type"] ?? null,
-                    "card_type_arg" => isset($randomCard["type_arg"]) ? (int) $randomCard["type_arg"] : null,
+                    "target_player_id" => $targetPlayerId,
+                    "card_id" => $selectedCardId,
+                    "card_type" => $selectedCard["type"] ?? null,
+                    "card_type_arg" => isset($selectedCard["type_arg"]) ? (int) $selectedCard["type_arg"] : null,
                 ]);
 
                 // Public notification: do NOT reveal card identity.
                 $this->game->notify->all("papageddonSteal", clienttranslate('${player_name} steals a card from ${target_name}'), [
                     "player_id" => $activePlayerId,
                     "player_name" => $this->game->getPlayerNameById($activePlayerId),
-                    "target_player_id" => $nextPlayerId,
-                    "target_name" => $this->game->getPlayerNameById($nextPlayerId),
-                    "card_id" => $randomCard["id"],
+                    "target_player_id" => $targetPlayerId,
+                    "target_name" => $this->game->getPlayerNameById($targetPlayerId),
+                    "card_id" => $selectedCardId,
                     "i18n" => ["target_name"],
                 ]);
             }
@@ -577,6 +596,16 @@ class ActionResolution extends GameState
         foreach ($hand1CardIds as $cardId) {
             $this->game->cards->moveCard($cardId, "hand", $player2Id);
         }
+
+        // Private: refresh both players' hands immediately (avoid needing a page refresh).
+        $this->game->notify->player($player1Id, "handUpdated", '', [
+            "hand" => array_values($this->game->cards->getPlayerHand($player1Id)),
+            "deckCount" => $this->game->cards->countCardInLocation("deck"),
+        ]);
+        $this->game->notify->player($player2Id, "handUpdated", '', [
+            "hand" => array_values($this->game->cards->getPlayerHand($player2Id)),
+            "deckCount" => $this->game->cards->countCardInLocation("deck"),
+        ]);
 
         $this->game->notify->all("spiderPotato", clienttranslate('${player1_name} and ${player2_name} exchange their hands'), [
             "player1_id" => $player1Id,

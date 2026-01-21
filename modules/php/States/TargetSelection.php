@@ -14,10 +14,8 @@ use Bga\Games\DondeLasPapasQueman\States\CardSelection;
 use Bga\Games\DondeLasPapasQueman\States\CardNameSelection;
 use Bga\Games\DondeLasPapasQueman\States\ReactionPhase;
 
-class TargetSelection extends GameState
-{
-    function __construct(protected Game $game)
-    {
+class TargetSelection extends GameState {
+    function __construct(protected Game $game) {
         parent::__construct(
             $game,
             id: 25,
@@ -30,10 +28,9 @@ class TargetSelection extends GameState
     /**
      * Get arguments for target selection
      */
-    public function getArgs(): array
-    {
+    public function getArgs(): array {
         $activePlayerId = $this->game->getActivePlayerId();
-        if ($activePlayerId === null || $activePlayerId === '') {
+        if ($activePlayerId === null || $activePlayerId === "") {
             return [
                 "selectablePlayers" => [],
                 "cardName" => "",
@@ -50,11 +47,11 @@ class TargetSelection extends GameState
         $nameIndex = $cardData["name_index"] ?? 0;
 
         // Determine if multiple targets are required
-        $requiresMultipleTargets = ($nameIndex == 14); // Spider potato requires 2 targets
+        $requiresMultipleTargets = $nameIndex == 14; // Spider potato requires 2 targets
         $targetCount = $requiresMultipleTargets ? 2 : 1;
 
         // Get all players except self (unless card allows self)
-        $players = $this->game->getCollectionFromDb("SELECT player_id, player_name FROM player");
+        $players = $this->game->getCollectionFromDb("SELECT player_id, player_name, player_color FROM player");
         $selectablePlayers = [];
 
         foreach ($players as $player) {
@@ -64,6 +61,7 @@ class TargetSelection extends GameState
                 $selectablePlayers[] = [
                     "id" => $playerId,
                     "name" => $player["player_name"],
+                    "color" => $player["player_color"] ?? "",
                 ];
             }
         }
@@ -80,8 +78,7 @@ class TargetSelection extends GameState
      * Select target(s) for action card
      */
     #[PossibleAction]
-    public function actSelectTargets(#[IntArrayParam] array $targetPlayerIds, int $activePlayerId)
-    {
+    public function actSelectTargets(#[IntArrayParam] array $targetPlayerIds, int $activePlayerId) {
         // Get the card being played from game state
         $actionCardData = $this->game->globals->get("action_card_data");
         $cardData = unserialize($actionCardData);
@@ -89,7 +86,7 @@ class TargetSelection extends GameState
         $cardName = $cardData["card_name"] ?? "";
 
         // Validate target count
-        $requiresMultipleTargets = ($nameIndex == 14); // Spider potato
+        $requiresMultipleTargets = $nameIndex == 14; // Spider potato
         $expectedCount = $requiresMultipleTargets ? 2 : 1;
 
         if (count($targetPlayerIds) != $expectedCount) {
@@ -126,7 +123,7 @@ class TargetSelection extends GameState
 
         // Log which player(s) were targeted (important for ReactionPhase decisions).
         // (Especially useful for "Lend me a buck", where the target needs to know they're being targeted before card selection.)
-        $targetNames = array_map(fn ($id) => $this->game->getPlayerNameById((int) $id), $targetPlayerIds);
+        $targetNames = array_map(fn($id) => $this->game->getPlayerNameById((int) $id), $targetPlayerIds);
         $targetNamesText = implode(", ", array_filter($targetNames));
         if ($targetNamesText !== "") {
             $this->game->notify->all(
@@ -150,8 +147,7 @@ class TargetSelection extends GameState
     /**
      * Zombie handling - select random target(s)
      */
-    function zombie(int $playerId)
-    {
+    function zombie(int $playerId) {
         $args = $this->getArgs();
         $selectablePlayers = $args["selectablePlayers"];
         $targetCount = $args["targetCount"];

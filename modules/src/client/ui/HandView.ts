@@ -1,10 +1,11 @@
-import { decodeCardTypeArg, getCardName, getCardValue, isInterruptCard } from "../domain/CardRules";
+import { decodeCardTypeArg, getCardName, getCardTooltipHtml, getCardValue, isInterruptCard } from "../domain/CardRules";
 
 export type HandViewRenderArgs = {
   hand: Card[];
   selectedCardIds: number[];
   isReactionPhase: boolean;
   onCardClick: (cardId: number) => void;
+  attachTooltip?: (nodeId: string, html: string) => void;
 };
 
 export class HandView {
@@ -19,6 +20,7 @@ export class HandView {
     args.hand.forEach((card) => {
       const cardDiv = document.createElement("div");
       cardDiv.className = "card";
+      cardDiv.id = `dlpq-card-hand-${card.id}`;
       cardDiv.dataset.cardId = card.id.toString();
 
       const cardName = getCardName(card);
@@ -27,9 +29,7 @@ export class HandView {
       const interrupt = isInterruptCard(card);
 
       cardDiv.innerHTML = `
-                ${
-                  decoded.isAlarm ? '<div class="alarm-dot" title="' + _("Alarm") + '"></div>' : ""
-                }
+                ${decoded.isAlarm ? '<div class="alarm-dot" title="' + _("Alarm") + '"></div>' : ""}
                 <div class="card-type">${card.type}</div>
                 <div class="card-name">${cardName}</div>
                 <div class="card-value">Value: ${cardValue}</div>
@@ -46,7 +46,11 @@ export class HandView {
       }
 
       handCards.appendChild(cardDiv);
+
+      // Attach tooltip after element is in DOM.
+      if (args.attachTooltip) {
+        args.attachTooltip(cardDiv.id, getCardTooltipHtml(card));
+      }
     });
   }
 }
-

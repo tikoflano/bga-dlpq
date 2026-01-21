@@ -23,6 +23,28 @@ class ReactionPhase extends GameState {
     }
 
     /**
+     * Calculate reaction time in seconds based on game speed
+     * Uses speed profile: Fast=5s, Medium=7s, Slow=10s
+     */
+    private function getReactionTimeSeconds(): int {
+        // Try to get speed profile from table options
+        // Option 200 is GAMESTATE_CLOCK_MODE: 0=fast, 1=normal, 2=slow (for realtime games)
+        try {
+            $speedProfile = $this->game->tableOptions->get(200);
+            if ($speedProfile === 0) {
+                return 5; // Fast: 5 seconds
+            } elseif ($speedProfile === 2) {
+                return 10; // Slow: 10 seconds
+            } else {
+                return 7; // Normal/Medium: 7 seconds (default)
+            }
+        } catch (\Exception $e) {
+            // Fallback to default if speed profile not available
+            return 7;
+        }
+    }
+
+    /**
      * Called when entering reaction phase
      */
     public function onEnteringState(int $activePlayerId) {
@@ -32,10 +54,13 @@ class ReactionPhase extends GameState {
         $data = unserialize($reactionData);
         $targetPlayerId = (int) ($data["player_id"] ?? $activePlayerId);
 
-        // Give a short window for reactions (UI uses 5 seconds)
+        // Calculate reaction time based on game speed
+        $reactionTime = $this->getReactionTimeSeconds();
+
+        // Give a variable window for reactions based on game speed
         $players = $this->game->getCollectionFromDb("SELECT player_id FROM player");
         foreach ($players as $player) {
-            $this->game->giveExtraTime($player["player_id"], 5);
+            $this->game->giveExtraTime($player["player_id"], $reactionTime);
         }
 
         // Set a flag to track if any interrupt was played
@@ -96,7 +121,7 @@ class ReactionPhase extends GameState {
                     $playedCard = $this->game->cards->getCard($cardId);
                     if ($playedCard) {
                         $this->game->cards->moveCard($cardId, "discard");
-                        $this->game->notify->all("cardMovedToDiscard", '', [
+                        $this->game->notify->all("cardMovedToDiscard", "", [
                             "player_id" => (int) ($data["player_id"] ?? 0),
                             "card_id" => $cardId,
                             "card_type" => $playedCard["type"],
@@ -127,6 +152,7 @@ class ReactionPhase extends GameState {
             "target_card_ids" => $data["card_ids"] ?? [],
             "is_threesome" => ($data["type"] ?? "") == "threesome",
             "is_alarm" => $data["is_alarm"] ?? false,
+            "reaction_time_seconds" => $this->getReactionTimeSeconds(),
         ];
 
         // Get all players' interrupt cards (for UI, but don't reveal who has what)
@@ -370,8 +396,7 @@ class ReactionPhase extends GameState {
     /**
      * Decide where to go next (no side effects).
      */
-    private function decideNextStateAfterReactions(bool $interruptPlayed, bool $alarmFlag, bool $isActionCard)
-    {
+    private function decideNextStateAfterReactions(bool $interruptPlayed, bool $alarmFlag, bool $isActionCard) {
         if ($interruptPlayed) {
             // Card was interrupted, return to PlayerTurn.
             return PlayerTurn::class;
@@ -390,8 +415,11 @@ class ReactionPhase extends GameState {
             }
 
             // Card name selection (Pope Potato)
-            $needsCardNameSelection = ($nameIndex == 7);
-            if ($needsCardNameSelection && (empty($cardData["named_card_type"]) || empty($cardData["named_name_index"]))) {
+            $needsCardNameSelection = $nameIndex == 7;
+            if (
+                $needsCardNameSelection &&
+                (empty($cardData["named_card_type"]) || empty($cardData["named_name_index"]))
+            ) {
                 return CardNameSelection::class;
             }
 
@@ -430,9 +458,9 @@ class ReactionPhase extends GameState {
         // If this is the last multiactive player, apply post-reaction effects here (some transitions bypass onLeavingState).
         $activeList = $this->game->gamestate->getActivePlayerList();
         if (is_string($activeList)) {
-            $activeList = array_values(array_filter(explode(',', $activeList)));
+            $activeList = array_values(array_filter(explode(",", $activeList)));
         }
-        $isLast = is_array($activeList) ? (count($activeList) <= 1) : true;
+        $isLast = is_array($activeList) ? count($activeList) <= 1 : true;
         if ($isLast) {
             $this->applyPostReactionEffects($interruptPlayed, $isActionCard);
             $this->game->setGameStateValue("alarm_flag", 0);
@@ -461,9 +489,9 @@ class ReactionPhase extends GameState {
 
         $activeList = $this->game->gamestate->getActivePlayerList();
         if (is_string($activeList)) {
-            $activeList = array_values(array_filter(explode(',', $activeList)));
+            $activeList = array_values(array_filter(explode(",", $activeList)));
         }
-        $isLast = is_array($activeList) ? (count($activeList) <= 1) : true;
+        $isLast = is_array($activeList) ? count($activeList) <= 1 : true;
         if ($isLast) {
             $this->applyPostReactionEffects($interruptPlayed, $isActionCard);
             $this->game->setGameStateValue("alarm_flag", 0);

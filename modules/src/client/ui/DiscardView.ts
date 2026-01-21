@@ -15,6 +15,7 @@ export class DiscardView {
                 <div class="card-value">Value: ${cardValue}</div>
             `;
       discardCardEl.classList.remove("empty");
+      // Tooltip is handled by Game.ts so it can use BGA's addTooltipHtml/removeTooltip.
       return;
     }
 
@@ -22,4 +23,3 @@ export class DiscardView {
     discardCardEl.classList.add("empty");
   }
 }
-

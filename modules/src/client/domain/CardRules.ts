@@ -62,6 +62,132 @@ export function isInterruptCard(card: Card): boolean {
   return decoded.name_index === 1 || decoded.name_index === 2;
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function toHtmlText(text: string): string {
+  // Escape then convert newlines to <br/> for tooltip readability.
+  return escapeHtml(text).replaceAll("\n", "<br/>");
+}
+
+function getPotatoThreesomeReward(nameIndex: number): number {
+  // Based on GAME_RULES.md placeholder rules.
+  // potato -> 1, duchesses potatoes -> 2, french fries -> 3
+  if (nameIndex === 1) return 1;
+  if (nameIndex === 2) return 2;
+  if (nameIndex === 3) return 3;
+  return 0;
+}
+
+function getActionCardEffectText(nameIndex: number): string {
+  // Placeholder texts based on ACTION_CARDS.md / GAME_RULES.md.
+  switch (nameIndex) {
+    case 1:
+      return _(
+        "Interrupt card.\nCancels a regular card or another “No dude”.\nCannot cancel “I told you no dude” or threesomes.",
+      );
+    case 2:
+      return _(
+        "Interrupt card.\nCancels anything: regular cards, “No dude”, “I told you no dude”, and threesomes.",
+      );
+    case 3:
+      return _("Steal 1 golden potato from a target player.");
+    case 4:
+      return _("Steal 1 card from a target player (blind selection).");
+    case 5:
+      return _("Each other player returns 1 random card from their hand to the deck. Then shuffle the deck.");
+    case 6:
+      return _("Draw 2 cards from the deck.");
+    case 7:
+      return _("Choose a target and name a card. If they have it, steal 1 copy of that card.");
+    case 8:
+      return _("Destroy 1 golden potato from a target player.");
+    case 9:
+      return _("Gain 1 golden potato from the supply.");
+    case 10:
+      return _("Target discards their entire hand, then draws 2 new cards.");
+    case 11:
+      return _("Steal 1 card from a target player’s hand (blind selection).");
+    case 12:
+      return _("Draw 1 card. The next player skips their turn.");
+    case 13:
+      return _("Reverse turn order. Steal 1 card from the next player (blind selection).");
+    case 14:
+      return _("Choose 2 players. Those players exchange hands (can include you).");
+    default:
+      return _("No tooltip text yet for this card.");
+  }
+}
+
+/**
+ * Return HTML for a card tooltip. Tooltip visibility is controlled by BGA's
+ * built-in “Display tooltips” preference.
+ */
+export function getCardTooltipHtml(card: Card): string {
+  const decoded = decodeCardTypeArg(card.type_arg || 0);
+  const title = getCardName(card);
+
+  let body = "";
+  const meta: string[] = [];
+
+  if (card.type === "potato") {
+    const reward = getPotatoThreesomeReward(decoded.name_index);
+    body =
+      reward > 0
+        ? _("Potato card.\nCollect 3 matching potatoes (wildcards allowed) to gain ${n} golden potatoes.")
+            .replace("${n}", String(reward))
+        : _("Potato card.\nCollect 3 matching potatoes (wildcards allowed) to gain golden potatoes.");
+    meta.push(_("Cannot be played by itself."));
+    return `
+      <div class="dlpq-tooltip">
+        <div class="dlpq-tooltip-title">${escapeHtml(title)}</div>
+        <div class="dlpq-tooltip-body">${toHtmlText(body)}</div>
+        <div class="dlpq-tooltip-meta">${meta.map((m) => `<div>${toHtmlText(m)}</div>`).join("")}</div>
+      </div>
+    `;
+  }
+
+  if (card.type === "wildcard") {
+    body = _("Wildcard.\nCounts as any potato for potato threesomes.");
+    meta.push(_("Cannot be played by itself."));
+    return `
+      <div class="dlpq-tooltip">
+        <div class="dlpq-tooltip-title">${escapeHtml(title)}</div>
+        <div class="dlpq-tooltip-body">${toHtmlText(body)}</div>
+        <div class="dlpq-tooltip-meta">${meta.map((m) => `<div>${toHtmlText(m)}</div>`).join("")}</div>
+      </div>
+    `;
+  }
+
+  // Action cards
+  body = getActionCardEffectText(decoded.name_index);
+  if (decoded.value > 0) {
+    meta.push(_("Value: ${n}").replace("${n}", String(decoded.value)));
+  } else {
+    meta.push(_("Value: 0"));
+  }
+  if (decoded.isAlarm) {
+    meta.push(_("Alarm: if not interrupted, your turn ends after the reaction phase."));
+  }
+  if (decoded.name_index === 1 || decoded.name_index === 2) {
+    meta.push(_("Playable during reaction phase only."));
+  }
+
+  return `
+    <div class="dlpq-tooltip">
+      <div class="dlpq-tooltip-title">${escapeHtml(title)}</div>
+      <div class="dlpq-tooltip-body">${toHtmlText(body)}</div>
+      <div class="dlpq-tooltip-meta">${meta.map((m) => `<div>${toHtmlText(m)}</div>`).join("")}</div>
+    </div>
+  `;
+}
+
 export type ValidPlayFromSelection =
   | { kind: "single"; cardId: number; label: string }
   | { kind: "threesome_potato"; cardIds: number[]; label: string }

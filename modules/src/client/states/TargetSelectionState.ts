@@ -12,6 +12,16 @@ export class TargetSelectionState implements ClientStateHandler {
 
   constructor(private game: Game) {}
 
+  /**
+   * Generate HTML for a player color indicator box
+   */
+  private getPlayerColorBox(color: string): string {
+    if (!color) return "";
+    // Ensure color is in hex format (add # if missing)
+    const hexColor = color.startsWith("#") ? color : `#${color}`;
+    return `<span class="player-color-indicator" style="background-color: ${hexColor};"></span>`;
+  }
+
   onLeave(): void {
     this.selectedTargets = [];
     this.hideTargetSelection();
@@ -36,11 +46,13 @@ export class TargetSelectionState implements ClientStateHandler {
 
     selectablePlayers.forEach((player: any) => {
       const isSelected = this.selectedTargets.includes(player.id);
+      const colorBox = this.getPlayerColorBox(player.color || "");
+      const playerNameWithColor = (player.name || "") + " " + colorBox;
       const buttonText = isSelected
-        ? _("Deselect ${player_name}").replace("${player_name}", player.name)
-        : _("Select ${player_name}").replace("${player_name}", player.name);
+        ? _("Deselect ${player_name}").replace("${player_name}", playerNameWithColor)
+        : _("Select ${player_name}").replace("${player_name}", playerNameWithColor);
 
-      this.game.bga.statusBar.addActionButton(
+      const button = this.game.bga.statusBar.addActionButton(
         buttonText,
         () => {
           const index = this.selectedTargets.indexOf(player.id);
@@ -65,6 +77,10 @@ export class TargetSelectionState implements ClientStateHandler {
         },
         { color: isSelected ? "secondary" : "primary" },
       );
+      // Set innerHTML to support the color box HTML
+      if (button && colorBox) {
+        button.innerHTML = buttonText;
+      }
     });
 
     if (requiresMultipleTargets && this.selectedTargets.length === targetCount) {
@@ -86,4 +102,3 @@ export class TargetSelectionState implements ClientStateHandler {
     if (targetDiv) targetDiv.remove();
   }
 }
-

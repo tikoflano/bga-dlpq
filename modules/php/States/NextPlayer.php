@@ -113,6 +113,9 @@ class NextPlayer extends \Bga\GameFramework\States\GameState
         
         $this->game->activeNextPlayer();
 
+        // Reset turn start flag for the new player's turn
+        $this->game->setGameStateValue("turn_start_flag", 1);
+
         return PlayerTurn::class;
     }
 }

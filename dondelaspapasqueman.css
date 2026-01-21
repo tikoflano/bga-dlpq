@@ -141,20 +141,6 @@
     box-shadow: 0 0 20px rgba(255, 107, 107, 0.8);
   }
 }
-/* Reaction phase: Skip button fills over time */
-.dplq-reaction-skip {
-  background-repeat: no-repeat;
-  background-image: linear-gradient(to right, rgba(255, 107, 107, 0.35), rgba(255, 107, 107, 0.35));
-  background-size: 0% 100%;
-  background-position: left center;
-  animation: dplq-reaction-skip-fill 5s linear forwards;
-}
-
-@keyframes dplq-reaction-skip-fill {
-  to {
-    background-size: 100% 100%;
-  }
-}
 /* Golden Potato Cards Area */
 #golden-potato-cards-area {
   margin: 20px 0;
@@ -277,6 +263,26 @@
   margin-top: 5px;
 }
 
+/* Card tooltip content (BGA tooltip container styles the wrapper) */
+.dlpq-tooltip {
+  max-width: 320px;
+}
+
+.dlpq-tooltip-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.dlpq-tooltip-body {
+  line-height: 1.25;
+}
+
+.dlpq-tooltip-meta {
+  margin-top: 8px;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
 /* Card Selection Modal */
 #card-selection-dialog .card-back {
   width: 60px;
@@ -293,4 +299,18 @@
   transform: translateY(-5px);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
   border-color: #ff6b6b;
+}
+
+/* Player Color Indicator */
+.player-color-indicator {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  margin-left: 4px;
+  vertical-align: middle;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  position: relative;
+  top: -0.5px; /* Fine-tune vertical alignment */
 }

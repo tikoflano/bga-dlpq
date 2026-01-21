@@ -6,6 +6,16 @@ export class CardSelectionState implements ClientStateHandler {
 
   constructor(private game: Game) {}
 
+  /**
+   * Generate HTML for a player color indicator box
+   */
+  private getPlayerColorBox(color: string): string {
+    if (!color) return "";
+    // Ensure color is in hex format (add # if missing)
+    const hexColor = color.startsWith("#") ? color : `#${color}`;
+    return `<span class="player-color-indicator" style="background-color: ${hexColor};"></span>`;
+  }
+
   onEnter(args: any): void {
     const a = args?.args || args;
     this.show(a);
@@ -22,8 +32,9 @@ export class CardSelectionState implements ClientStateHandler {
 
     this.dialog = new ebg.popindialog();
     this.dialog.create("card-selection-dialog");
+    const targetName = args.targetPlayerName || "";
     this.dialog.setTitle(
-      _("Select a card from ${target_name}'s hand").replace("${target_name}", args.targetPlayerName || ""),
+      _("Select a card from ${target_name}'s hand").replace("${target_name}", targetName),
     );
     this.dialog.setMaxWidth(600);
     this.dialog.hideCloseIcon();
@@ -34,7 +45,6 @@ export class CardSelectionState implements ClientStateHandler {
         cardsHtml += `
           <div class="card-back" 
                data-position="${cardBack.position}" 
-               data-card-id="${cardBack.card_id}"
                style="width: 60px; height: 90px; background-color: #8B0000; border: 2px solid #000; border-radius: 5px; cursor: pointer; display: inline-block; margin: 5px;">
           </div>
         `;

@@ -10,6 +10,7 @@
 
 import {
   decodeCardTypeArg,
+  getCardTooltipHtml,
   isInterruptCard,
 } from "./domain/CardRules";
 import { DeckView } from "./ui/DeckView";
@@ -150,6 +151,11 @@ class Game {
       isReactionPhase:
         this.gamedatas.gamestate.name === "ReactionPhase" && this.bga.players.isCurrentPlayerActive(),
       onCardClick: (cardId) => this.onCardClick(cardId),
+      attachTooltip: (nodeId, html) => {
+        // Safe on rerenders: remove then re-add.
+        this.bga.gameui.removeTooltip(nodeId);
+        this.bga.gameui.addTooltipHtml(nodeId, html);
+      },
     });
   }
 
@@ -233,6 +239,12 @@ class Game {
   updateDiscardDisplay(card: Card | null): void {
     this.latestDiscardedCard = card;
     this.discardView.render(card);
+
+    // Tooltip for the discard top card (if any).
+    this.bga.gameui.removeTooltip("discard-card");
+    if (card) {
+      this.bga.gameui.addTooltipHtml("discard-card", getCardTooltipHtml(card));
+    }
   }
 
   /**

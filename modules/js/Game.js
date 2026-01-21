@@ -56,6 +56,122 @@ function isInterruptCard(card) {
     // name_index 1 = "No dude", name_index 2 = "I told you no dude"
     return decoded.name_index === 1 || decoded.name_index === 2;
 }
+function escapeHtml(text) {
+    return text
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+function toHtmlText(text) {
+    // Escape then convert newlines to <br/> for tooltip readability.
+    return escapeHtml(text).replaceAll("\n", "<br/>");
+}
+function getPotatoThreesomeReward(nameIndex) {
+    // Based on GAME_RULES.md placeholder rules.
+    // potato -> 1, duchesses potatoes -> 2, french fries -> 3
+    if (nameIndex === 1)
+        return 1;
+    if (nameIndex === 2)
+        return 2;
+    if (nameIndex === 3)
+        return 3;
+    return 0;
+}
+function getActionCardEffectText(nameIndex) {
+    // Placeholder texts based on ACTION_CARDS.md / GAME_RULES.md.
+    switch (nameIndex) {
+        case 1:
+            return _("Interrupt card.\nCancels a regular card or another “No dude”.\nCannot cancel “I told you no dude” or threesomes.");
+        case 2:
+            return _("Interrupt card.\nCancels anything: regular cards, “No dude”, “I told you no dude”, and threesomes.");
+        case 3:
+            return _("Steal 1 golden potato from a target player.");
+        case 4:
+            return _("Steal 1 card from a target player (blind selection).");
+        case 5:
+            return _("Each other player returns 1 random card from their hand to the deck. Then shuffle the deck.");
+        case 6:
+            return _("Draw 2 cards from the deck.");
+        case 7:
+            return _("Choose a target and name a card. If they have it, steal 1 copy of that card.");
+        case 8:
+            return _("Destroy 1 golden potato from a target player.");
+        case 9:
+            return _("Gain 1 golden potato from the supply.");
+        case 10:
+            return _("Target discards their entire hand, then draws 2 new cards.");
+        case 11:
+            return _("Steal 1 card from a target player’s hand (blind selection).");
+        case 12:
+            return _("Draw 1 card. The next player skips their turn.");
+        case 13:
+            return _("Reverse turn order. Steal 1 card from the next player (blind selection).");
+        case 14:
+            return _("Choose 2 players. Those players exchange hands (can include you).");
+        default:
+            return _("No tooltip text yet for this card.");
+    }
+}
+/**
+ * Return HTML for a card tooltip. Tooltip visibility is controlled by BGA's
+ * built-in “Display tooltips” preference.
+ */
+function getCardTooltipHtml(card) {
+    const decoded = decodeCardTypeArg(card.type_arg || 0);
+    const title = getCardName(card);
+    let body = "";
+    const meta = [];
+    if (card.type === "potato") {
+        const reward = getPotatoThreesomeReward(decoded.name_index);
+        body =
+            reward > 0
+                ? _("Potato card.\nCollect 3 matching potatoes (wildcards allowed) to gain ${n} golden potatoes.")
+                    .replace("${n}", String(reward))
+                : _("Potato card.\nCollect 3 matching potatoes (wildcards allowed) to gain golden potatoes.");
+        meta.push(_("Cannot be played by itself."));
+        return `
+      <div class="dlpq-tooltip">
+        <div class="dlpq-tooltip-title">${escapeHtml(title)}</div>
+        <div class="dlpq-tooltip-body">${toHtmlText(body)}</div>
+        <div class="dlpq-tooltip-meta">${meta.map((m) => `<div>${toHtmlText(m)}</div>`).join("")}</div>
+      </div>
+    `;
+    }
+    if (card.type === "wildcard") {
+        body = _("Wildcard.\nCounts as any potato for potato threesomes.");
+        meta.push(_("Cannot be played by itself."));
+        return `
+      <div class="dlpq-tooltip">
+        <div class="dlpq-tooltip-title">${escapeHtml(title)}</div>
+        <div class="dlpq-tooltip-body">${toHtmlText(body)}</div>
+        <div class="dlpq-tooltip-meta">${meta.map((m) => `<div>${toHtmlText(m)}</div>`).join("")}</div>
+      </div>
+    `;
+    }
+    // Action cards
+    body = getActionCardEffectText(decoded.name_index);
+    if (decoded.value > 0) {
+        meta.push(_("Value: ${n}").replace("${n}", String(decoded.value)));
+    }
+    else {
+        meta.push(_("Value: 0"));
+    }
+    if (decoded.isAlarm) {
+        meta.push(_("Alarm: if not interrupted, your turn ends after the reaction phase."));
+    }
+    if (decoded.name_index === 1 || decoded.name_index === 2) {
+        meta.push(_("Playable during reaction phase only."));
+    }
+    return `
+    <div class="dlpq-tooltip">
+      <div class="dlpq-tooltip-title">${escapeHtml(title)}</div>
+      <div class="dlpq-tooltip-body">${toHtmlText(body)}</div>
+      <div class="dlpq-tooltip-meta">${meta.map((m) => `<div>${toHtmlText(m)}</div>`).join("")}</div>
+    </div>
+  `;
+}
 function getValidPlayFromSelection(hand, selectedCardIds) {
     const byId = new Map((hand || []).map((c) => [c.id, c]));
     const selected = selectedCardIds.map((id) => byId.get(id)).filter((c) => !!c);
@@ -123,6 +239,7 @@ class DiscardView {
                 <div class="card-value">Value: ${cardValue}</div>
             `;
             discardCardEl.classList.remove("empty");
+            // Tooltip is handled by Game.ts so it can use BGA's addTooltipHtml/removeTooltip.
             return;
         }
         discardCardEl.innerHTML = '<div class="card-placeholder">Discard Pile</div>';
@@ -177,6 +294,7 @@ class HandView {
         args.hand.forEach((card) => {
             const cardDiv = document.createElement("div");
             cardDiv.className = "card";
+            cardDiv.id = `dlpq-card-hand-${card.id}`;
             cardDiv.dataset.cardId = card.id.toString();
             const cardName = getCardName(card);
             const cardValue = getCardValue(card);
@@ -196,6 +314,10 @@ class HandView {
                 cardDiv.classList.add("interrupt-card");
             }
             handCards.appendChild(cardDiv);
+            // Attach tooltip after element is in DOM.
+            if (args.attachTooltip) {
+                args.attachTooltip(cardDiv.id, getCardTooltipHtml(card));
+            }
         });
     }
 }
@@ -214,80 +336,6 @@ class ActionResolutionState {
 class CardNameSelectionState {
     constructor(game) {
         this.game = game;
-    }
-    onEnter(args) {
-        this.show(args);
-    }
-    onLeave() {
-        this.hide();
-    }
-    show(args) {
-        if (!this.game.bga.gameui.isCurrentPlayerActive())
-            return;
-        this.hide();
-        const nameDiv = document.createElement("div");
-        nameDiv.id = "card-name-selection-ui";
-        nameDiv.className = "card-name-selection-ui";
-        nameDiv.innerHTML = `
-      <div class="card-name-selection-title">${_("Name a card")}</div>
-      <select id="card-type-select" class="card-type-select">
-        <option value="">${_("Select card type...")}</option>
-      </select>
-      <select id="card-name-select" class="card-name-select" disabled>
-        <option value="">${_("Select card name...")}</option>
-      </select>
-      <button id="confirm-card-name" class="btn btn-primary" disabled>${_("Confirm")}</button>
-    `;
-        const cardTypeSelect = nameDiv.querySelector("#card-type-select");
-        const cardNameSelect = nameDiv.querySelector("#card-name-select");
-        const confirmBtn = nameDiv.querySelector("#confirm-card-name");
-        if (args.cardNames) {
-            Object.keys(args.cardNames).forEach((cardType) => {
-                const option = document.createElement("option");
-                option.value = cardType;
-                option.textContent = cardType.charAt(0).toUpperCase() + cardType.slice(1);
-                cardTypeSelect.appendChild(option);
-            });
-        }
-        cardTypeSelect.addEventListener("change", () => {
-            const selectedType = cardTypeSelect.value;
-            cardNameSelect.innerHTML = '<option value="">' + _("Select card name...") + "</option>";
-            cardNameSelect.disabled = !selectedType;
-            if (selectedType && args.cardNames[selectedType]) {
-                Object.keys(args.cardNames[selectedType]).forEach((nameIndex) => {
-                    const option = document.createElement("option");
-                    option.value = nameIndex;
-                    option.textContent = args.cardNames[selectedType][nameIndex];
-                    cardNameSelect.appendChild(option);
-                });
-            }
-            confirmBtn.disabled = !selectedType || !cardNameSelect.value;
-        });
-        cardNameSelect.addEventListener("change", () => {
-            confirmBtn.disabled = !cardTypeSelect.value || !cardNameSelect.value;
-        });
-        confirmBtn.addEventListener("click", () => {
-            const cardType = cardTypeSelect.value;
-            const nameIndex = parseInt(cardNameSelect.value);
-            if (cardType && nameIndex) {
-                this.game.bga.actions.performAction("actSelectCardName", {
-                    card_type: cardType,
-                    name_index: nameIndex,
-                });
-            }
-        });
-        this.game.bga.gameArea.getElement().appendChild(nameDiv);
-    }
-    hide() {
-        const nameDiv = document.getElementById("card-name-selection-ui");
-        if (nameDiv)
-            nameDiv.remove();
-    }
-}
-
-class CardSelectionState {
-    constructor(game) {
-        this.game = game;
         this.dialog = null;
     }
     onEnter(args) {
@@ -302,8 +350,128 @@ class CardSelectionState {
             return;
         this.hide();
         this.dialog = new ebg.popindialog();
+        this.dialog.create("card-name-selection-dialog");
+        this.dialog.setTitle(_("Name a card"));
+        this.dialog.setMaxWidth(500);
+        this.dialog.hideCloseIcon();
+        const cardNames = args?.cardNames || {};
+        let contentHtml = `
+      <div id="card-name-selection-content" style="padding: 20px;">
+        <div style="margin-bottom: 15px;">
+          <label for="card-type-select" style="display: block; margin-bottom: 5px; font-weight: bold;">${_("Card Type")}</label>
+          <select id="card-type-select" class="card-type-select" style="width: 100%; padding: 8px; font-size: 14px;">
+            <option value="">${_("Select card type...")}</option>
+          </select>
+        </div>
+        <div style="margin-bottom: 15px;">
+          <label for="card-name-select" style="display: block; margin-bottom: 5px; font-weight: bold;">${_("Card Name")}</label>
+          <select id="card-name-select" class="card-name-select" disabled style="width: 100%; padding: 8px; font-size: 14px;">
+            <option value="">${_("Select card name...")}</option>
+          </select>
+        </div>
+        <div style="text-align: center; margin-top: 20px;">
+          <button id="confirm-card-name" class="bgabutton" disabled style="cursor: not-allowed;">${_("Confirm")}</button>
+        </div>
+      </div>
+    `;
+        this.dialog.setContent(contentHtml);
+        this.dialog.show();
+        setTimeout(() => {
+            const cardTypeSelect = document.getElementById("card-type-select");
+            const cardNameSelect = document.getElementById("card-name-select");
+            const confirmBtn = document.getElementById("confirm-card-name");
+            if (!cardTypeSelect || !cardNameSelect || !confirmBtn)
+                return;
+            // Populate card type dropdown
+            if (cardNames && Object.keys(cardNames).length > 0) {
+                Object.keys(cardNames).forEach((cardType) => {
+                    const option = document.createElement("option");
+                    option.value = cardType;
+                    option.textContent = cardType.charAt(0).toUpperCase() + cardType.slice(1);
+                    cardTypeSelect.appendChild(option);
+                });
+            }
+            const updateConfirmButton = () => {
+                const hasSelection = cardTypeSelect.value && cardNameSelect.value;
+                confirmBtn.disabled = !hasSelection;
+                if (hasSelection) {
+                    confirmBtn.classList.add("bgabutton_blue");
+                    confirmBtn.style.cursor = "pointer";
+                }
+                else {
+                    confirmBtn.classList.remove("bgabutton_blue");
+                    confirmBtn.style.cursor = "not-allowed";
+                }
+            };
+            cardTypeSelect.addEventListener("change", () => {
+                const selectedType = cardTypeSelect.value;
+                cardNameSelect.innerHTML = '<option value="">' + _("Select card name...") + "</option>";
+                cardNameSelect.disabled = !selectedType;
+                if (selectedType && cardNames[selectedType]) {
+                    Object.keys(cardNames[selectedType]).forEach((nameIndex) => {
+                        const option = document.createElement("option");
+                        option.value = nameIndex;
+                        option.textContent = cardNames[selectedType][nameIndex];
+                        cardNameSelect.appendChild(option);
+                    });
+                }
+                updateConfirmButton();
+            });
+            cardNameSelect.addEventListener("change", () => {
+                updateConfirmButton();
+            });
+            confirmBtn.addEventListener("click", () => {
+                const cardType = cardTypeSelect.value;
+                const nameIndex = parseInt(cardNameSelect.value);
+                if (cardType && nameIndex) {
+                    this.game.bga.actions.performAction("actSelectCardName", {
+                        cardType: cardType,
+                        nameIndex: nameIndex,
+                    });
+                    this.hide();
+                }
+            });
+        }, 100);
+    }
+    hide() {
+        if (this.dialog) {
+            this.dialog.hide();
+            this.dialog.destroy();
+            this.dialog = null;
+        }
+    }
+}
+
+class CardSelectionState {
+    constructor(game) {
+        this.game = game;
+        this.dialog = null;
+    }
+    /**
+     * Generate HTML for a player color indicator box
+     */
+    getPlayerColorBox(color) {
+        if (!color)
+            return "";
+        // Ensure color is in hex format (add # if missing)
+        const hexColor = color.startsWith("#") ? color : `#${color}`;
+        return `<span class="player-color-indicator" style="background-color: ${hexColor};"></span>`;
+    }
+    onEnter(args) {
+        const a = args?.args || args;
+        this.show(a);
+    }
+    onLeave() {
+        this.hide();
+    }
+    show(args) {
+        if (!this.game.bga.gameui.isCurrentPlayerActive())
+            return;
+        this.hide();
+        this.dialog = new ebg.popindialog();
         this.dialog.create("card-selection-dialog");
-        this.dialog.setTitle(_("Select a card from ${target_name}'s hand").replace("${target_name}", args.targetPlayerName || ""));
+        const targetName = args.targetPlayerName || "";
+        this.dialog.setTitle(_("Select a card from ${target_name}'s hand").replace("${target_name}", targetName));
         this.dialog.setMaxWidth(600);
         this.dialog.hideCloseIcon();
         let cardsHtml = '<div id="card-selection-cards" style="text-align: center; padding: 20px;">';
@@ -312,7 +480,6 @@ class CardSelectionState {
                 cardsHtml += `
           <div class="card-back" 
                data-position="${cardBack.position}" 
-               data-card-id="${cardBack.card_id}"
                style="width: 60px; height: 90px; background-color: #8B0000; border: 2px solid #000; border-radius: 5px; cursor: pointer; display: inline-block; margin: 5px;">
           </div>
         `;
@@ -458,8 +625,14 @@ class ReactionPhaseState {
         this.game = game;
         this.countdownIntervalId = null;
         this.autoSkipTimeoutId = null;
+        this.skipButton = null;
+        this.reactionTimeSeconds = 7; // Default, will be updated from args
     }
-    onEnter(_args) {
+    onEnter(args) {
+        // Get reaction time from args if available
+        if (args && typeof args.reaction_time_seconds === 'number') {
+            this.reactionTimeSeconds = args.reaction_time_seconds;
+        }
         this.game.resetReactionActionSent();
         this.maybeStartTimer();
     }
@@ -475,15 +648,19 @@ class ReactionPhaseState {
             this.stopTimer();
             return;
         }
+        // Update reaction time from args if available
+        if (args && typeof args.reaction_time_seconds === 'number') {
+            this.reactionTimeSeconds = args.reaction_time_seconds;
+        }
         this.game.bga.statusBar.removeActionButtons();
         // Refresh hand to highlight interrupt cards
         if (this.game.getGamedatas().hand) {
             this.game.updateHand(this.game.getGamedatas().hand);
         }
         // Add "Skip" button for all active players
-        this.game.bga.statusBar.addActionButton(_("Skip"), () => {
+        this.skipButton = this.game.bga.statusBar.addActionButton(_("Skip"), () => {
             this.sendSkip();
-        }, { color: "secondary", classes: ["dplq-reaction-skip"] });
+        }, { color: "primary" });
         this.maybeStartTimer();
     }
     maybeStartTimer() {
@@ -502,15 +679,14 @@ class ReactionPhaseState {
         }
         if (this.countdownIntervalId !== null || this.autoSkipTimeoutId !== null)
             return;
-        const reactionSeconds = 5;
-        const timerDiv = document.createElement("div");
-        timerDiv.id = "reaction-timer";
-        timerDiv.className = "reaction-timer";
-        timerDiv.innerHTML =
-            `<div>Reaction Phase: <span id="timer-countdown">${reactionSeconds}</span> seconds</div>`;
-        this.game.bga.gameArea.getElement().appendChild(timerDiv);
+        // Use the variable reaction time instead of hardcoded 5
+        const reactionSeconds = this.reactionTimeSeconds;
         const deadlineMs = Date.now() + reactionSeconds * 1000;
         let lastShownSeconds = reactionSeconds;
+        // Set initial button text to show countdown
+        if (this.skipButton) {
+            this.skipButton.textContent = _("Skip") + ` (${reactionSeconds})`;
+        }
         this.autoSkipTimeoutId = window.setTimeout(() => {
             if (this.game.getGamedatas().gamestate.name !== "ReactionPhase")
                 return;
@@ -531,9 +707,15 @@ class ReactionPhaseState {
             const secondsLeft = Math.max(0, Math.ceil(msLeft / 1000));
             if (secondsLeft !== lastShownSeconds) {
                 lastShownSeconds = secondsLeft;
-                const countdownEl = document.getElementById("timer-countdown");
-                if (countdownEl)
-                    countdownEl.textContent = secondsLeft.toString();
+                // Update skip button text with countdown
+                if (this.skipButton) {
+                    if (secondsLeft > 0) {
+                        this.skipButton.textContent = _("Skip") + ` (${secondsLeft})`;
+                    }
+                    else {
+                        this.skipButton.textContent = _("Skip");
+                    }
+                }
             }
         }, 100);
     }
@@ -557,9 +739,7 @@ class ReactionPhaseState {
             clearTimeout(this.autoSkipTimeoutId);
             this.autoSkipTimeoutId = null;
         }
-        const timerDiv = document.getElementById("reaction-timer");
-        if (timerDiv)
-            timerDiv.remove();
+        this.skipButton = null;
     }
 }
 
@@ -567,6 +747,16 @@ class TargetSelectionState {
     constructor(game) {
         this.game = game;
         this.selectedTargets = [];
+    }
+    /**
+     * Generate HTML for a player color indicator box
+     */
+    getPlayerColorBox(color) {
+        if (!color)
+            return "";
+        // Ensure color is in hex format (add # if missing)
+        const hexColor = color.startsWith("#") ? color : `#${color}`;
+        return `<span class="player-color-indicator" style="background-color: ${hexColor};"></span>`;
     }
     onLeave() {
         this.selectedTargets = [];
@@ -589,10 +779,12 @@ class TargetSelectionState {
         const { selectablePlayers, targetCount, requiresMultipleTargets } = args;
         selectablePlayers.forEach((player) => {
             const isSelected = this.selectedTargets.includes(player.id);
+            const colorBox = this.getPlayerColorBox(player.color || "");
+            const playerNameWithColor = (player.name || "") + " " + colorBox;
             const buttonText = isSelected
-                ? _("Deselect ${player_name}").replace("${player_name}", player.name)
-                : _("Select ${player_name}").replace("${player_name}", player.name);
-            this.game.bga.statusBar.addActionButton(buttonText, () => {
+                ? _("Deselect ${player_name}").replace("${player_name}", playerNameWithColor)
+                : _("Select ${player_name}").replace("${player_name}", playerNameWithColor);
+            const button = this.game.bga.statusBar.addActionButton(buttonText, () => {
                 const index = this.selectedTargets.indexOf(player.id);
                 if (index > -1) {
                     this.selectedTargets.splice(index, 1);
@@ -614,6 +806,10 @@ class TargetSelectionState {
                     this.updateButtons(args);
                 }
             }, { color: isSelected ? "secondary" : "primary" });
+            // Set innerHTML to support the color box HTML
+            if (button && colorBox) {
+                button.innerHTML = buttonText;
+            }
         });
         if (requiresMultipleTargets && this.selectedTargets.length === targetCount) {
             this.game.bga.statusBar.addActionButton(_("Confirm Selection"), () => {
@@ -877,8 +1073,21 @@ class GameNotifications {
         console.log("Pope Potato:", args);
         const cardId = this.asInt(args.card_id);
         const targetPlayerId = this.asInt(args.target_player_id);
+        const playerId = this.asInt(args.player_id);
         if (targetPlayerId === this.game.bga.gameui.player_id && cardId !== null) {
             this.game.removeCardFromMyHand(cardId);
+        }
+        if (playerId === this.game.bga.gameui.player_id && cardId !== null) {
+            const cardType = args.card_type;
+            const cardTypeArg = this.asInt(args.card_type_arg);
+            if (cardType && cardTypeArg !== null) {
+                this.game.addCardToMyHand({ id: cardId, type: cardType, type_arg: cardTypeArg });
+            }
+            else {
+                const cached = this.game.getRevealedCardFromCache(cardId);
+                if (cached)
+                    this.game.addCardToMyHand(cached);
+            }
         }
     }
     async notif_popePotatoFail(args) {
@@ -1080,6 +1289,11 @@ class Game {
             selectedCardIds: this.selectedCards,
             isReactionPhase: this.gamedatas.gamestate.name === "ReactionPhase" && this.bga.players.isCurrentPlayerActive(),
             onCardClick: (cardId) => this.onCardClick(cardId),
+            attachTooltip: (nodeId, html) => {
+                // Safe on rerenders: remove then re-add.
+                this.bga.gameui.removeTooltip(nodeId);
+                this.bga.gameui.addTooltipHtml(nodeId, html);
+            },
         });
     }
     updateDeckDisplay(count) {
@@ -1149,6 +1363,11 @@ class Game {
     updateDiscardDisplay(card) {
         this.latestDiscardedCard = card;
         this.discardView.render(card);
+        // Tooltip for the discard top card (if any).
+        this.bga.gameui.removeTooltip("discard-card");
+        if (card) {
+            this.bga.gameui.addTooltipHtml("discard-card", getCardTooltipHtml(card));
+        }
     }
     /**
      * Update golden potato cards display

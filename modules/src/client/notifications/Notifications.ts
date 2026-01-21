@@ -258,8 +258,22 @@ export class GameNotifications {
     console.log("Pope Potato:", args);
     const cardId = this.asInt(args.card_id);
     const targetPlayerId = this.asInt(args.target_player_id);
+    const playerId = this.asInt(args.player_id);
+
     if (targetPlayerId === this.game.bga.gameui.player_id && cardId !== null) {
       this.game.removeCardFromMyHand(cardId);
+    }
+
+    if (playerId === this.game.bga.gameui.player_id && cardId !== null) {
+      const cardType = args.card_type as string | null | undefined;
+      const cardTypeArg = this.asInt(args.card_type_arg);
+
+      if (cardType && cardTypeArg !== null) {
+        this.game.addCardToMyHand({ id: cardId, type: cardType, type_arg: cardTypeArg });
+      } else {
+        const cached = this.game.getRevealedCardFromCache(cardId);
+        if (cached) this.game.addCardToMyHand(cached);
+      }
     }
   }
 
