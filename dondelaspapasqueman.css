@@ -491,3 +491,6 @@
   font-weight: bold;
   color: #2c5282;
 }
+.card-count-counter.over-limit .card-count-number {
+  color: #dc2626;
+}

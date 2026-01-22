@@ -613,9 +613,27 @@ class DiscardPhaseState {
         const handSize = (this.game.getGamedatas().hand || []).length;
         const selectedCount = this.game.getSelectedCards().length;
         const cardsToDiscard = Math.max(0, handSize - 7);
-        // Only show the action if the selection would leave exactly 7 cards.
-        if (cardsToDiscard > 0 && selectedCount === cardsToDiscard) {
-            const label = _("Discard ${count} cards").replace("${count}", String(selectedCount));
+        // Always show the button when cards need to be discarded, with appropriate state and message
+        if (cardsToDiscard > 0) {
+            let label;
+            let disabled = false;
+            if (selectedCount < cardsToDiscard) {
+                const remaining = cardsToDiscard - selectedCount;
+                const cardWord = remaining === 1 ? "card" : "cards";
+                label = _("Select ${count} more ${cardWord}").replace("${count}", String(remaining)).replace("${cardWord}", cardWord);
+                disabled = true;
+            }
+            else if (selectedCount > cardsToDiscard) {
+                const excess = selectedCount - cardsToDiscard;
+                const cardWord = excess === 1 ? "card" : "cards";
+                label = _("Unselect ${count} more ${cardWord}").replace("${count}", String(excess)).replace("${cardWord}", cardWord);
+                disabled = true;
+            }
+            else {
+                const cardWord = selectedCount === 1 ? "card" : "cards";
+                label = _("Discard ${count} ${cardWord}").replace("${count}", String(selectedCount)).replace("${cardWord}", cardWord);
+                disabled = false;
+            }
             this.game.bga.statusBar.addActionButton(label, () => {
                 const cardIds = this.game.getSelectedCards().slice();
                 // Defensive: only submit if still valid at click-time.
@@ -625,7 +643,7 @@ class DiscardPhaseState {
                 this.game.clearSelectedCards();
                 this.game.updateHand(this.game.getGamedatas().hand || []);
                 this.game.bga.statusBar.removeActionButtons();
-            }, { color: "primary" });
+            }, { color: "primary", disabled });
         }
         else if (a) {
             // No button: status bar text is enough, per UX requirement.
@@ -1525,6 +1543,9 @@ class Game {
                 // Create card counter element
                 cardCounterElement = document.createElement('div');
                 cardCounterElement.className = 'card-count-counter';
+                if (handCount > 7) {
+                    cardCounterElement.classList.add('over-limit');
+                }
                 cardCounterElement.innerHTML = `
           <span class="card-count-icon">🃏</span>
           <span class="card-count-number">${handCount}/7</span>
@@ -1536,6 +1557,13 @@ class Game {
                 const countSpan = cardCounterElement.querySelector('.card-count-number');
                 if (countSpan) {
                     countSpan.textContent = `${handCount}/7`;
+                }
+                // Update over-limit class
+                if (handCount > 7) {
+                    cardCounterElement.classList.add('over-limit');
+                }
+                else {
+                    cardCounterElement.classList.remove('over-limit');
                 }
             }
         }
@@ -1601,11 +1629,21 @@ class Game {
             if (countSpan) {
                 countSpan.textContent = `${handCount}/7`;
             }
+            // Update over-limit class
+            if (handCount > 7) {
+                cardCounterElement.classList.add('over-limit');
+            }
+            else {
+                cardCounterElement.classList.remove('over-limit');
+            }
         }
         else {
             // Create if it doesn't exist
             cardCounterElement = document.createElement('div');
             cardCounterElement.className = 'card-count-counter';
+            if (handCount > 7) {
+                cardCounterElement.classList.add('over-limit');
+            }
             cardCounterElement.innerHTML = `
         <span class="card-count-icon">🃏</span>
         <span class="card-count-number">${handCount}/7</span>

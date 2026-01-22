@@ -142,6 +142,9 @@ class Game {
         // Create card counter element
         cardCounterElement = document.createElement('div');
         cardCounterElement.className = 'card-count-counter';
+        if (handCount > 7) {
+          cardCounterElement.classList.add('over-limit');
+        }
         cardCounterElement.innerHTML = `
           <span class="card-count-icon">🃏</span>
           <span class="card-count-number">${handCount}/7</span>
@@ -152,6 +155,12 @@ class Game {
         const countSpan = cardCounterElement.querySelector('.card-count-number');
         if (countSpan) {
           countSpan.textContent = `${handCount}/7`;
+        }
+        // Update over-limit class
+        if (handCount > 7) {
+          cardCounterElement.classList.add('over-limit');
+        } else {
+          cardCounterElement.classList.remove('over-limit');
         }
       }
     }
@@ -220,10 +229,19 @@ class Game {
       if (countSpan) {
         countSpan.textContent = `${handCount}/7`;
       }
+      // Update over-limit class
+      if (handCount > 7) {
+        cardCounterElement.classList.add('over-limit');
+      } else {
+        cardCounterElement.classList.remove('over-limit');
+      }
     } else {
       // Create if it doesn't exist
       cardCounterElement = document.createElement('div');
       cardCounterElement.className = 'card-count-counter';
+      if (handCount > 7) {
+        cardCounterElement.classList.add('over-limit');
+      }
       cardCounterElement.innerHTML = `
         <span class="card-count-icon">🃏</span>
         <span class="card-count-number">${handCount}/7</span>

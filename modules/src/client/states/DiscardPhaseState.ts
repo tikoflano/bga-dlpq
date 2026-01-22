@@ -27,9 +27,27 @@ export class DiscardPhaseState implements ClientStateHandler {
     const selectedCount = this.game.getSelectedCards().length;
     const cardsToDiscard = Math.max(0, handSize - 7);
 
-    // Only show the action if the selection would leave exactly 7 cards.
-    if (cardsToDiscard > 0 && selectedCount === cardsToDiscard) {
-      const label = _("Discard ${count} cards").replace("${count}", String(selectedCount));
+    // Always show the button when cards need to be discarded, with appropriate state and message
+    if (cardsToDiscard > 0) {
+      let label: string;
+      let disabled = false;
+
+      if (selectedCount < cardsToDiscard) {
+        const remaining = cardsToDiscard - selectedCount;
+        const cardWord = remaining === 1 ? "card" : "cards";
+        label = _("Select ${count} more ${cardWord}").replace("${count}", String(remaining)).replace("${cardWord}", cardWord);
+        disabled = true;
+      } else if (selectedCount > cardsToDiscard) {
+        const excess = selectedCount - cardsToDiscard;
+        const cardWord = excess === 1 ? "card" : "cards";
+        label = _("Unselect ${count} more ${cardWord}").replace("${count}", String(excess)).replace("${cardWord}", cardWord);
+        disabled = true;
+      } else {
+        const cardWord = selectedCount === 1 ? "card" : "cards";
+        label = _("Discard ${count} ${cardWord}").replace("${count}", String(selectedCount)).replace("${cardWord}", cardWord);
+        disabled = false;
+      }
+
       this.game.bga.statusBar.addActionButton(
         label,
         () => {
@@ -42,7 +60,7 @@ export class DiscardPhaseState implements ClientStateHandler {
           this.game.updateHand(this.game.getGamedatas().hand || []);
           this.game.bga.statusBar.removeActionButtons();
         },
-        { color: "primary" },
+        { color: "primary", disabled },
       );
     } else if (a) {
       // No button: status bar text is enough, per UX requirement.
