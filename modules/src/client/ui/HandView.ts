@@ -4,6 +4,7 @@ export type HandViewRenderArgs = {
   hand: Card[];
   selectedCardIds: number[];
   isReactionPhase: boolean;
+  isThreesome?: boolean;
   onCardClick: (cardId: number) => void;
   attachTooltip?: (nodeId: string, html: string) => void;
 };
@@ -41,8 +42,18 @@ export class HandView {
         cardDiv.classList.add("selected");
       }
 
+      // Highlight interrupt cards during reaction phase
+      // If it's a threesome, only highlight "I told you no dude" (name_index === 2)
       if (args.isReactionPhase && interrupt) {
-        cardDiv.classList.add("interrupt-card");
+        if (args.isThreesome) {
+          // Only highlight "I told you no dude" for threesomes
+          if (decoded.name_index === 2) {
+            cardDiv.classList.add("interrupt-card");
+          }
+        } else {
+          // Highlight all interrupt cards for regular cards
+          cardDiv.classList.add("interrupt-card");
+        }
       }
 
       handCards.appendChild(cardDiv);

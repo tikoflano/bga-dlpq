@@ -314,11 +314,15 @@ class Game {
   //// Utility methods
 
   updateHand(hand: Card[]): void {
+    const isReactionPhase =
+      this.gamedatas.gamestate.name === "ReactionPhase" && this.bga.players.isCurrentPlayerActive();
+    const isThreesome = isReactionPhase && this.gamedatas.gamestate.args?.is_threesome === true;
+
     this.handView.render({
       hand,
       selectedCardIds: this.selectedCards,
-      isReactionPhase:
-        this.gamedatas.gamestate.name === "ReactionPhase" && this.bga.players.isCurrentPlayerActive(),
+      isReactionPhase,
+      isThreesome,
       onCardClick: (cardId) => this.onCardClick(cardId),
       attachTooltip: (nodeId, html) => {
         // Safe on rerenders: remove then re-add.
@@ -478,9 +482,17 @@ class Game {
       card &&
       isInterruptCard(card)
     ) {
+      const decoded = decodeCardTypeArg(card.type_arg || 0);
+      const isThreesome = this.gamedatas.gamestate.args?.is_threesome === true;
+
+      // "No dude" cannot cancel threesomes - prevent clicking it in the UI
+      if (decoded.name_index === 1 && isThreesome) {
+        // "No dude" cannot cancel threesomes
+        return;
+      }
+
       // Play the interrupt card
       this.markReactionActionSent();
-      const decoded = decodeCardTypeArg(card.type_arg || 0);
       const actionPromise =
         decoded.name_index === 1
           ? // "No dude"
