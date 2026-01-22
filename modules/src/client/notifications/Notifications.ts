@@ -56,6 +56,13 @@ export class GameNotifications {
     if (Array.isArray(args.hand)) {
       gd.hand = args.hand;
       this.game.updateHand(gd.hand);
+      
+      // Update current player's card count
+      const currentPlayerId = this.game.bga.gameui.player_id;
+      if (currentPlayerId && gd.players?.[currentPlayerId]) {
+        (gd.players[currentPlayerId] as any).handCount = args.hand.length;
+        this.game.updatePlayerCardCount(currentPlayerId);
+      }
     }
     const deckCount = this.asInt(args.deckCount);
     if (deckCount !== null) {
@@ -81,6 +88,16 @@ export class GameNotifications {
     const playerId = this.asInt(args.player_id);
     if (playedCardId !== null && playerId === this.game.bga.gameui.player_id) {
       this.game.removeCardFromMyHand(playedCardId);
+    }
+
+    // Update card count for the player who played the card
+    if (playerId !== null) {
+      const gd = this.game.getGamedatas();
+      if (gd.players?.[playerId]) {
+        const currentCount = Number((gd.players[playerId] as any).handCount ?? 0);
+        (gd.players[playerId] as any).handCount = Math.max(0, currentCount - 1);
+        this.game.updatePlayerCardCount(playerId);
+      }
     }
   }
 
@@ -133,7 +150,9 @@ export class GameNotifications {
     this.decDeckCount(1);
 
     const gd = this.game.getGamedatas();
-    if (args.player_id == this.game.bga.gameui.player_id && gd.hand) {
+    const playerId = this.asInt(args.player_id);
+    
+    if (playerId === this.game.bga.gameui.player_id && gd.hand) {
       if (args.card_type && args.card_type_arg !== undefined) {
         const newCard: Card = {
           id: args.card_id,
@@ -144,6 +163,15 @@ export class GameNotifications {
         this.game.updateHand(gd.hand);
       }
     }
+
+    // Update card count for the player who drew the card
+    if (playerId !== null) {
+      if (gd.players?.[playerId]) {
+        const currentCount = Number((gd.players[playerId] as any).handCount ?? 0);
+        (gd.players[playerId] as any).handCount = currentCount + 1;
+        this.game.updatePlayerCardCount(playerId);
+      }
+    }
   }
 
   async notif_cardsDiscarded(args: any): Promise<void> {
@@ -151,6 +179,8 @@ export class GameNotifications {
     this.game.updateDeckDisplay(Math.max(0, this.game.getGamedatas().deckCount || 0));
 
     const gd = this.game.getGamedatas();
+    const playerId = this.asInt(args.player_id);
+    
     if (gd.hand) {
       const discardedIds = new Set<number>();
       if (Array.isArray(args.card_ids)) {
@@ -167,6 +197,16 @@ export class GameNotifications {
         return !discardedIds.has(id);
       });
       this.game.updateHand(gd.hand);
+    }
+
+    // Update card count for the player who discarded cards
+    if (playerId !== null) {
+      if (gd.players?.[playerId]) {
+        const discardedCount = Array.isArray(args.card_ids) ? args.card_ids.length : 0;
+        const currentCount = Number((gd.players[playerId] as any).handCount ?? 0);
+        (gd.players[playerId] as any).handCount = Math.max(0, currentCount - discardedCount);
+        this.game.updatePlayerCardCount(playerId);
+      }
     }
 
     // Update discard display to show one of the discarded cards as the new top.
@@ -242,6 +282,24 @@ export class GameNotifications {
         if (cached) this.game.addCardToMyHand(cached);
       }
     }
+
+    // Update card counts for affected players
+    if (targetPlayerId !== null) {
+      const gd = this.game.getGamedatas();
+      if (gd.players?.[targetPlayerId]) {
+        const currentCount = Number((gd.players[targetPlayerId] as any).handCount ?? 0);
+        (gd.players[targetPlayerId] as any).handCount = Math.max(0, currentCount - 1);
+        this.game.updatePlayerCardCount(targetPlayerId);
+      }
+    }
+    if (playerId !== null && playerId !== targetPlayerId) {
+      const gd = this.game.getGamedatas();
+      if (gd.players?.[playerId]) {
+        const currentCount = Number((gd.players[playerId] as any).handCount ?? 0);
+        (gd.players[playerId] as any).handCount = currentCount + 1;
+        this.game.updatePlayerCardCount(playerId);
+      }
+    }
   }
 
   async notif_runawayPotatoes(args: any): Promise<void> {
@@ -278,6 +336,24 @@ export class GameNotifications {
         if (cached) this.game.addCardToMyHand(cached);
       }
     }
+
+    // Update card counts for affected players
+    if (targetPlayerId !== null) {
+      const gd = this.game.getGamedatas();
+      if (gd.players?.[targetPlayerId]) {
+        const currentCount = Number((gd.players[targetPlayerId] as any).handCount ?? 0);
+        (gd.players[targetPlayerId] as any).handCount = Math.max(0, currentCount - 1);
+        this.game.updatePlayerCardCount(targetPlayerId);
+      }
+    }
+    if (playerId !== null && playerId !== targetPlayerId) {
+      const gd = this.game.getGamedatas();
+      if (gd.players?.[playerId]) {
+        const currentCount = Number((gd.players[playerId] as any).handCount ?? 0);
+        (gd.players[playerId] as any).handCount = currentCount + 1;
+        this.game.updatePlayerCardCount(playerId);
+      }
+    }
   }
 
   async notif_popePotatoFail(args: any): Promise<void> {
@@ -302,6 +378,15 @@ export class GameNotifications {
     if (deckCount !== null) {
       this.setDeckCount(deckCount);
     }
+    // Target player discards hand and draws 2, so hand count becomes 2
+    const targetPlayerId = this.asInt(args.target_player_id);
+    if (targetPlayerId !== null) {
+      const gd = this.game.getGamedatas();
+      if (gd.players?.[targetPlayerId]) {
+        (gd.players[targetPlayerId] as any).handCount = 2;
+        this.game.updatePlayerCardCount(targetPlayerId);
+      }
+    }
   }
 
   async notif_potatoDawan(args: any): Promise<void> {
@@ -325,6 +410,24 @@ export class GameNotifications {
         if (cached) this.game.addCardToMyHand(cached);
       }
     }
+
+    // Update card counts for affected players
+    if (targetPlayerId !== null) {
+      const gd = this.game.getGamedatas();
+      if (gd.players?.[targetPlayerId]) {
+        const currentCount = Number((gd.players[targetPlayerId] as any).handCount ?? 0);
+        (gd.players[targetPlayerId] as any).handCount = Math.max(0, currentCount - 1);
+        this.game.updatePlayerCardCount(targetPlayerId);
+      }
+    }
+    if (playerId !== null && playerId !== targetPlayerId) {
+      const gd = this.game.getGamedatas();
+      if (gd.players?.[playerId]) {
+        const currentCount = Number((gd.players[playerId] as any).handCount ?? 0);
+        (gd.players[playerId] as any).handCount = currentCount + 1;
+        this.game.updatePlayerCardCount(playerId);
+      }
+    }
   }
 
   async notif_jumpToTheSide(args: any): Promise<void> {
@@ -343,9 +446,28 @@ export class GameNotifications {
     console.log("Papageddon steal:", args);
     const cardId = this.asInt(args.card_id);
     const targetPlayerId = this.asInt(args.target_player_id);
+    const playerId = this.asInt(args.player_id);
 
     if (targetPlayerId === this.game.bga.gameui.player_id && cardId !== null) {
       this.game.removeCardFromMyHand(cardId);
+    }
+
+    // Update card counts for affected players
+    if (targetPlayerId !== null) {
+      const gd = this.game.getGamedatas();
+      if (gd.players?.[targetPlayerId]) {
+        const currentCount = Number((gd.players[targetPlayerId] as any).handCount ?? 0);
+        (gd.players[targetPlayerId] as any).handCount = Math.max(0, currentCount - 1);
+        this.game.updatePlayerCardCount(targetPlayerId);
+      }
+    }
+    if (playerId !== null && playerId !== targetPlayerId) {
+      const gd = this.game.getGamedatas();
+      if (gd.players?.[playerId]) {
+        const currentCount = Number((gd.players[playerId] as any).handCount ?? 0);
+        (gd.players[playerId] as any).handCount = currentCount + 1;
+        this.game.updatePlayerCardCount(playerId);
+      }
     }
   }
 
@@ -365,6 +487,17 @@ export class GameNotifications {
 
   async notif_spiderPotato(args: any): Promise<void> {
     console.log("Spider potato:", args);
+    // Hands are exchanged, so we need to refresh card counts for both players
+    // The actual counts will be updated when handUpdated notifications are received
+    // But we can also refresh from game data if available
+    const player1Id = this.asInt(args.player1_id);
+    const player2Id = this.asInt(args.player2_id);
+    if (player1Id !== null) {
+      this.game.updatePlayerCardCount(player1Id);
+    }
+    if (player2Id !== null) {
+      this.game.updatePlayerCardCount(player2Id);
+    }
   }
 
   async notif_cardSelected(args: any): Promise<void> {

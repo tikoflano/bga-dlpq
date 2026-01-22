@@ -16,6 +16,7 @@ interface Card {
 
 interface DondeLasPapasQuemanPlayer extends Player {
   golden_potatoes?: number;
+  handCount?: number;
 }
 
 interface DondeLasPapasQuemanGamedatas extends Gamedatas<DondeLasPapasQuemanPlayer> {

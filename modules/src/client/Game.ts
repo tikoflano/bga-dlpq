@@ -92,7 +92,7 @@ class Game {
   }
 
   /**
-   * Setup golden potato counter display in player panels
+   * Setup golden potato counter and card count display in player panels
    */
   private setupPlayerPanelCounters(): void {
     const winThreshold = this.getWinThreshold();
@@ -102,13 +102,23 @@ class Game {
       const playerId = Number(playerIdStr);
       const player = players[playerId];
       const goldenPotatoes = Number((player as any).golden_potatoes ?? (player as any).score ?? 0);
+      const handCount = Number((player as any).handCount ?? 0);
 
       // Get player panel element
       const panelElement = this.bga.playerPanels.getElement(playerId);
       if (!panelElement) continue;
 
-      // Check if counter already exists
-      let counterElement = panelElement.querySelector('.golden-potato-counter');
+      // Check if counters container already exists
+      let countersContainer = panelElement.querySelector('.player-counters-container');
+      if (!countersContainer) {
+        // Create container for both counters
+        countersContainer = document.createElement('div');
+        countersContainer.className = 'player-counters-container';
+        panelElement.appendChild(countersContainer);
+      }
+
+      // Setup golden potato counter
+      let counterElement = countersContainer.querySelector('.golden-potato-counter');
       if (!counterElement) {
         // Create counter element
         counterElement = document.createElement('div');
@@ -117,12 +127,31 @@ class Game {
           <span class="golden-potato-icon">🥔</span>
           <span class="golden-potato-count">${goldenPotatoes}/${winThreshold}</span>
         `;
-        panelElement.appendChild(counterElement);
+        countersContainer.appendChild(counterElement);
       } else {
         // Update existing counter
         const countSpan = counterElement.querySelector('.golden-potato-count');
         if (countSpan) {
           countSpan.textContent = `${goldenPotatoes}/${winThreshold}`;
+        }
+      }
+
+      // Setup card count counter
+      let cardCounterElement = countersContainer.querySelector('.card-count-counter');
+      if (!cardCounterElement) {
+        // Create card counter element
+        cardCounterElement = document.createElement('div');
+        cardCounterElement.className = 'card-count-counter';
+        cardCounterElement.innerHTML = `
+          <span class="card-count-icon">🃏</span>
+          <span class="card-count-number">${handCount}</span>
+        `;
+        countersContainer.appendChild(cardCounterElement);
+      } else {
+        // Update existing counter
+        const countSpan = cardCounterElement.querySelector('.card-count-number');
+        if (countSpan) {
+          countSpan.textContent = `${handCount}`;
         }
       }
     }
@@ -140,7 +169,15 @@ class Game {
     const panelElement = this.bga.playerPanels.getElement(playerId);
     if (!panelElement) return;
 
-    let counterElement = panelElement.querySelector('.golden-potato-counter');
+    let countersContainer = panelElement.querySelector('.player-counters-container');
+    if (!countersContainer) {
+      // Create container if it doesn't exist
+      countersContainer = document.createElement('div');
+      countersContainer.className = 'player-counters-container';
+      panelElement.appendChild(countersContainer);
+    }
+
+    let counterElement = countersContainer.querySelector('.golden-potato-counter');
     if (counterElement) {
       const countSpan = counterElement.querySelector('.golden-potato-count');
       if (countSpan) {
@@ -154,7 +191,55 @@ class Game {
         <span class="golden-potato-icon">🥔</span>
         <span class="golden-potato-count">${goldenPotatoes}/${winThreshold}</span>
       `;
-      panelElement.appendChild(counterElement);
+      countersContainer.appendChild(counterElement);
+    }
+  }
+
+  /**
+   * Update card count counter for a specific player
+   */
+  updatePlayerCardCount(playerId: number): void {
+    const player = this.gamedatas.players?.[playerId];
+    if (!player) return;
+
+    const handCount = Number((player as any).handCount ?? 0);
+    const panelElement = this.bga.playerPanels.getElement(playerId);
+    if (!panelElement) return;
+
+    let countersContainer = panelElement.querySelector('.player-counters-container');
+    if (!countersContainer) {
+      // Create container if it doesn't exist
+      countersContainer = document.createElement('div');
+      countersContainer.className = 'player-counters-container';
+      panelElement.appendChild(countersContainer);
+    }
+
+    let cardCounterElement = countersContainer.querySelector('.card-count-counter');
+    if (cardCounterElement) {
+      const countSpan = cardCounterElement.querySelector('.card-count-number');
+      if (countSpan) {
+        countSpan.textContent = `${handCount}`;
+      }
+    } else {
+      // Create if it doesn't exist
+      cardCounterElement = document.createElement('div');
+      cardCounterElement.className = 'card-count-counter';
+      cardCounterElement.innerHTML = `
+        <span class="card-count-icon">🃏</span>
+        <span class="card-count-number">${handCount}</span>
+      `;
+      countersContainer.appendChild(cardCounterElement);
+    }
+  }
+
+  /**
+   * Refresh all player card counts from game data
+   */
+  refreshAllPlayerCardCounts(): void {
+    const players = this.gamedatas.players || {};
+    for (const playerIdStr in players) {
+      const playerId = Number(playerIdStr);
+      this.updatePlayerCardCount(playerId);
     }
   }
 

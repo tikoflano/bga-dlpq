@@ -890,6 +890,12 @@ class GameNotifications {
         if (Array.isArray(args.hand)) {
             gd.hand = args.hand;
             this.game.updateHand(gd.hand);
+            // Update current player's card count
+            const currentPlayerId = this.game.bga.gameui.player_id;
+            if (currentPlayerId && gd.players?.[currentPlayerId]) {
+                gd.players[currentPlayerId].handCount = args.hand.length;
+                this.game.updatePlayerCardCount(currentPlayerId);
+            }
         }
         const deckCount = this.asInt(args.deckCount);
         if (deckCount !== null) {
@@ -912,6 +918,15 @@ class GameNotifications {
         const playerId = this.asInt(args.player_id);
         if (playedCardId !== null && playerId === this.game.bga.gameui.player_id) {
             this.game.removeCardFromMyHand(playedCardId);
+        }
+        // Update card count for the player who played the card
+        if (playerId !== null) {
+            const gd = this.game.getGamedatas();
+            if (gd.players?.[playerId]) {
+                const currentCount = Number(gd.players[playerId].handCount ?? 0);
+                gd.players[playerId].handCount = Math.max(0, currentCount - 1);
+                this.game.updatePlayerCardCount(playerId);
+            }
         }
     }
     async notif_threesomePlayed(args) {
@@ -955,7 +970,8 @@ class GameNotifications {
         console.log("Card drawn:", args);
         this.decDeckCount(1);
         const gd = this.game.getGamedatas();
-        if (args.player_id == this.game.bga.gameui.player_id && gd.hand) {
+        const playerId = this.asInt(args.player_id);
+        if (playerId === this.game.bga.gameui.player_id && gd.hand) {
             if (args.card_type && args.card_type_arg !== undefined) {
                 const newCard = {
                     id: args.card_id,
@@ -966,11 +982,20 @@ class GameNotifications {
                 this.game.updateHand(gd.hand);
             }
         }
+        // Update card count for the player who drew the card
+        if (playerId !== null) {
+            if (gd.players?.[playerId]) {
+                const currentCount = Number(gd.players[playerId].handCount ?? 0);
+                gd.players[playerId].handCount = currentCount + 1;
+                this.game.updatePlayerCardCount(playerId);
+            }
+        }
     }
     async notif_cardsDiscarded(args) {
         console.log("Cards discarded:", args);
         this.game.updateDeckDisplay(Math.max(0, this.game.getGamedatas().deckCount || 0));
         const gd = this.game.getGamedatas();
+        const playerId = this.asInt(args.player_id);
         if (gd.hand) {
             const discardedIds = new Set();
             if (Array.isArray(args.card_ids)) {
@@ -988,6 +1013,15 @@ class GameNotifications {
                 return !discardedIds.has(id);
             });
             this.game.updateHand(gd.hand);
+        }
+        // Update card count for the player who discarded cards
+        if (playerId !== null) {
+            if (gd.players?.[playerId]) {
+                const discardedCount = Array.isArray(args.card_ids) ? args.card_ids.length : 0;
+                const currentCount = Number(gd.players[playerId].handCount ?? 0);
+                gd.players[playerId].handCount = Math.max(0, currentCount - discardedCount);
+                this.game.updatePlayerCardCount(playerId);
+            }
         }
         // Update discard display to show one of the discarded cards as the new top.
         const top = args.discard_top_card;
@@ -1059,6 +1093,23 @@ class GameNotifications {
                     this.game.addCardToMyHand(cached);
             }
         }
+        // Update card counts for affected players
+        if (targetPlayerId !== null) {
+            const gd = this.game.getGamedatas();
+            if (gd.players?.[targetPlayerId]) {
+                const currentCount = Number(gd.players[targetPlayerId].handCount ?? 0);
+                gd.players[targetPlayerId].handCount = Math.max(0, currentCount - 1);
+                this.game.updatePlayerCardCount(targetPlayerId);
+            }
+        }
+        if (playerId !== null && playerId !== targetPlayerId) {
+            const gd = this.game.getGamedatas();
+            if (gd.players?.[playerId]) {
+                const currentCount = Number(gd.players[playerId].handCount ?? 0);
+                gd.players[playerId].handCount = currentCount + 1;
+                this.game.updatePlayerCardCount(playerId);
+            }
+        }
     }
     async notif_runawayPotatoes(args) {
         console.log("Runaway potatoes:", args);
@@ -1091,6 +1142,23 @@ class GameNotifications {
                     this.game.addCardToMyHand(cached);
             }
         }
+        // Update card counts for affected players
+        if (targetPlayerId !== null) {
+            const gd = this.game.getGamedatas();
+            if (gd.players?.[targetPlayerId]) {
+                const currentCount = Number(gd.players[targetPlayerId].handCount ?? 0);
+                gd.players[targetPlayerId].handCount = Math.max(0, currentCount - 1);
+                this.game.updatePlayerCardCount(targetPlayerId);
+            }
+        }
+        if (playerId !== null && playerId !== targetPlayerId) {
+            const gd = this.game.getGamedatas();
+            if (gd.players?.[playerId]) {
+                const currentCount = Number(gd.players[playerId].handCount ?? 0);
+                gd.players[playerId].handCount = currentCount + 1;
+                this.game.updatePlayerCardCount(playerId);
+            }
+        }
     }
     async notif_popePotatoFail(args) {
         console.log("Pope Potato failed:", args);
@@ -1113,6 +1181,15 @@ class GameNotifications {
         if (deckCount !== null) {
             this.setDeckCount(deckCount);
         }
+        // Target player discards hand and draws 2, so hand count becomes 2
+        const targetPlayerId = this.asInt(args.target_player_id);
+        if (targetPlayerId !== null) {
+            const gd = this.game.getGamedatas();
+            if (gd.players?.[targetPlayerId]) {
+                gd.players[targetPlayerId].handCount = 2;
+                this.game.updatePlayerCardCount(targetPlayerId);
+            }
+        }
     }
     async notif_potatoDawan(args) {
         console.log("Potato Dawan:", args);
@@ -1134,6 +1211,23 @@ class GameNotifications {
                     this.game.addCardToMyHand(cached);
             }
         }
+        // Update card counts for affected players
+        if (targetPlayerId !== null) {
+            const gd = this.game.getGamedatas();
+            if (gd.players?.[targetPlayerId]) {
+                const currentCount = Number(gd.players[targetPlayerId].handCount ?? 0);
+                gd.players[targetPlayerId].handCount = Math.max(0, currentCount - 1);
+                this.game.updatePlayerCardCount(targetPlayerId);
+            }
+        }
+        if (playerId !== null && playerId !== targetPlayerId) {
+            const gd = this.game.getGamedatas();
+            if (gd.players?.[playerId]) {
+                const currentCount = Number(gd.players[playerId].handCount ?? 0);
+                gd.players[playerId].handCount = currentCount + 1;
+                this.game.updatePlayerCardCount(playerId);
+            }
+        }
     }
     async notif_jumpToTheSide(args) {
         console.log("Jump to the side:", args);
@@ -1149,8 +1243,26 @@ class GameNotifications {
         console.log("Papageddon steal:", args);
         const cardId = this.asInt(args.card_id);
         const targetPlayerId = this.asInt(args.target_player_id);
+        const playerId = this.asInt(args.player_id);
         if (targetPlayerId === this.game.bga.gameui.player_id && cardId !== null) {
             this.game.removeCardFromMyHand(cardId);
+        }
+        // Update card counts for affected players
+        if (targetPlayerId !== null) {
+            const gd = this.game.getGamedatas();
+            if (gd.players?.[targetPlayerId]) {
+                const currentCount = Number(gd.players[targetPlayerId].handCount ?? 0);
+                gd.players[targetPlayerId].handCount = Math.max(0, currentCount - 1);
+                this.game.updatePlayerCardCount(targetPlayerId);
+            }
+        }
+        if (playerId !== null && playerId !== targetPlayerId) {
+            const gd = this.game.getGamedatas();
+            if (gd.players?.[playerId]) {
+                const currentCount = Number(gd.players[playerId].handCount ?? 0);
+                gd.players[playerId].handCount = currentCount + 1;
+                this.game.updatePlayerCardCount(playerId);
+            }
         }
     }
     async notif_papageddonStealPrivate(args) {
@@ -1167,6 +1279,17 @@ class GameNotifications {
     }
     async notif_spiderPotato(args) {
         console.log("Spider potato:", args);
+        // Hands are exchanged, so we need to refresh card counts for both players
+        // The actual counts will be updated when handUpdated notifications are received
+        // But we can also refresh from game data if available
+        const player1Id = this.asInt(args.player1_id);
+        const player2Id = this.asInt(args.player2_id);
+        if (player1Id !== null) {
+            this.game.updatePlayerCardCount(player1Id);
+        }
+        if (player2Id !== null) {
+            this.game.updatePlayerCardCount(player2Id);
+        }
     }
     async notif_cardSelected(args) {
         console.log("Card selected:", args);
@@ -1245,7 +1368,7 @@ class Game {
         return playerCount <= 3 ? 8 : playerCount <= 5 ? 6 : 5;
     }
     /**
-     * Setup golden potato counter display in player panels
+     * Setup golden potato counter and card count display in player panels
      */
     setupPlayerPanelCounters() {
         const winThreshold = this.getWinThreshold();
@@ -1254,12 +1377,21 @@ class Game {
             const playerId = Number(playerIdStr);
             const player = players[playerId];
             const goldenPotatoes = Number(player.golden_potatoes ?? player.score ?? 0);
+            const handCount = Number(player.handCount ?? 0);
             // Get player panel element
             const panelElement = this.bga.playerPanels.getElement(playerId);
             if (!panelElement)
                 continue;
-            // Check if counter already exists
-            let counterElement = panelElement.querySelector('.golden-potato-counter');
+            // Check if counters container already exists
+            let countersContainer = panelElement.querySelector('.player-counters-container');
+            if (!countersContainer) {
+                // Create container for both counters
+                countersContainer = document.createElement('div');
+                countersContainer.className = 'player-counters-container';
+                panelElement.appendChild(countersContainer);
+            }
+            // Setup golden potato counter
+            let counterElement = countersContainer.querySelector('.golden-potato-counter');
             if (!counterElement) {
                 // Create counter element
                 counterElement = document.createElement('div');
@@ -1268,13 +1400,32 @@ class Game {
           <span class="golden-potato-icon">🥔</span>
           <span class="golden-potato-count">${goldenPotatoes}/${winThreshold}</span>
         `;
-                panelElement.appendChild(counterElement);
+                countersContainer.appendChild(counterElement);
             }
             else {
                 // Update existing counter
                 const countSpan = counterElement.querySelector('.golden-potato-count');
                 if (countSpan) {
                     countSpan.textContent = `${goldenPotatoes}/${winThreshold}`;
+                }
+            }
+            // Setup card count counter
+            let cardCounterElement = countersContainer.querySelector('.card-count-counter');
+            if (!cardCounterElement) {
+                // Create card counter element
+                cardCounterElement = document.createElement('div');
+                cardCounterElement.className = 'card-count-counter';
+                cardCounterElement.innerHTML = `
+          <span class="card-count-icon">🃏</span>
+          <span class="card-count-number">${handCount}</span>
+        `;
+                countersContainer.appendChild(cardCounterElement);
+            }
+            else {
+                // Update existing counter
+                const countSpan = cardCounterElement.querySelector('.card-count-number');
+                if (countSpan) {
+                    countSpan.textContent = `${handCount}`;
                 }
             }
         }
@@ -1291,7 +1442,14 @@ class Game {
         const panelElement = this.bga.playerPanels.getElement(playerId);
         if (!panelElement)
             return;
-        let counterElement = panelElement.querySelector('.golden-potato-counter');
+        let countersContainer = panelElement.querySelector('.player-counters-container');
+        if (!countersContainer) {
+            // Create container if it doesn't exist
+            countersContainer = document.createElement('div');
+            countersContainer.className = 'player-counters-container';
+            panelElement.appendChild(countersContainer);
+        }
+        let counterElement = countersContainer.querySelector('.golden-potato-counter');
         if (counterElement) {
             const countSpan = counterElement.querySelector('.golden-potato-count');
             if (countSpan) {
@@ -1306,7 +1464,53 @@ class Game {
         <span class="golden-potato-icon">🥔</span>
         <span class="golden-potato-count">${goldenPotatoes}/${winThreshold}</span>
       `;
-            panelElement.appendChild(counterElement);
+            countersContainer.appendChild(counterElement);
+        }
+    }
+    /**
+     * Update card count counter for a specific player
+     */
+    updatePlayerCardCount(playerId) {
+        const player = this.gamedatas.players?.[playerId];
+        if (!player)
+            return;
+        const handCount = Number(player.handCount ?? 0);
+        const panelElement = this.bga.playerPanels.getElement(playerId);
+        if (!panelElement)
+            return;
+        let countersContainer = panelElement.querySelector('.player-counters-container');
+        if (!countersContainer) {
+            // Create container if it doesn't exist
+            countersContainer = document.createElement('div');
+            countersContainer.className = 'player-counters-container';
+            panelElement.appendChild(countersContainer);
+        }
+        let cardCounterElement = countersContainer.querySelector('.card-count-counter');
+        if (cardCounterElement) {
+            const countSpan = cardCounterElement.querySelector('.card-count-number');
+            if (countSpan) {
+                countSpan.textContent = `${handCount}`;
+            }
+        }
+        else {
+            // Create if it doesn't exist
+            cardCounterElement = document.createElement('div');
+            cardCounterElement.className = 'card-count-counter';
+            cardCounterElement.innerHTML = `
+        <span class="card-count-icon">🃏</span>
+        <span class="card-count-number">${handCount}</span>
+      `;
+            countersContainer.appendChild(cardCounterElement);
+        }
+    }
+    /**
+     * Refresh all player card counts from game data
+     */
+    refreshAllPlayerCardCounts() {
+        const players = this.gamedatas.players || {};
+        for (const playerIdStr in players) {
+            const playerId = Number(playerIdStr);
+            this.updatePlayerCardCount(playerId);
         }
     }
     setup(gamedatas) {

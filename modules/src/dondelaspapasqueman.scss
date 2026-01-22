@@ -343,16 +343,19 @@
   top: -0.5px; /* Fine-tune vertical alignment */
 }
 
+/* Player Counters Container in Player Panel */
+.player-counters-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
 /* Golden Potato Counter in Player Panel */
 .golden-potato-counter {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 8px;
-  padding: 6px 10px;
-  background-color: rgba(255, 215, 0, 0.1);
-  border: 1px solid rgba(255, 215, 0, 0.3);
-  border-radius: 4px;
   font-size: 14px;
 
   .golden-potato-icon {
@@ -363,5 +366,23 @@
   .golden-potato-count {
     font-weight: bold;
     color: #8b6914;
+  }
+}
+
+/* Card Count Counter in Player Panel */
+.card-count-counter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+
+  .card-count-icon {
+    font-size: 18px;
+    line-height: 1;
+  }
+
+  .card-count-number {
+    font-weight: bold;
+    color: #2c5282;
   }
 }

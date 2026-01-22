@@ -296,6 +296,12 @@ class Game extends \Bga\GameFramework\Table {
         $this->playerEnergy->fillResult($result);
         $this->playerGoldenPotatoes->fillResult($result);
 
+        // Add hand counts for all players (visible to all)
+        foreach ($result["players"] as $playerId => $player) {
+            $handCount = $this->cards->countCardInLocation("hand", (int) $playerId);
+            $result["players"][$playerId]["handCount"] = $handCount;
+        }
+
         // Get current player's hand (empty array if no current player)
         // Use array_values() to ensure it's a numeric array, not an associative array (which becomes an object in JSON)
         $hand = $current_player_id > 0 ? $this->cards->getPlayerHand($current_player_id) : [];
