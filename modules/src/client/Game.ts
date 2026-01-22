@@ -16,6 +16,7 @@ import {
 import { DeckView } from "./ui/DeckView";
 import { DiscardView } from "./ui/DiscardView";
 import { GoldenPotatoView } from "./ui/GoldenPotatoView";
+import { GoldenPotatoPileView } from "./ui/GoldenPotatoPileView";
 import { HandView } from "./ui/HandView";
 import { createStateHandlers } from "./states";
 import type { ClientStateHandler } from "./states/ClientStateHandler";
@@ -46,6 +47,7 @@ class Game {
   private deckView = new DeckView();
   private discardView = new DiscardView();
   private goldenPotatoView = new GoldenPotatoView();
+  private goldenPotatoPileView = new GoldenPotatoPileView();
   private stateHandlers: Record<string, ClientStateHandler>;
   private notifications: GameNotifications;
 
@@ -275,6 +277,10 @@ class Game {
                 <div id="golden-potato-cards"></div>
             </div>
             <div id="common-area">
+                <div id="golden-potato-pile-card" class="golden-potato-pile-card">
+                    <div class="card-back"></div>
+                    <div class="pile-count">0</div>
+                </div>
                 <div id="deck-card" class="deck-card">
                     <div class="card-back"></div>
                     <div class="deck-count">0</div>
@@ -295,7 +301,8 @@ class Game {
     const goldenPotatoes = Number(currentPlayer?.golden_potatoes || currentPlayer?.score || 0);
     this.updateGoldenPotatoCards(goldenPotatoes);
 
-    // Update deck and discard displays
+    // Update golden potato pile, deck and discard displays
+    this.updateGoldenPotatoPileDisplay(gamedatas.goldenPotatoPileCount || 0);
     this.updateDeckDisplay(gamedatas.deckCount || 0);
     this.updateDiscardDisplay(gamedatas.discardTopCard ?? null);
 
@@ -350,6 +357,10 @@ class Game {
         this.bga.gameui.addTooltipHtml(nodeId, html);
       },
     });
+  }
+
+  updateGoldenPotatoPileDisplay(count: number): void {
+    this.goldenPotatoPileView.setCount(count);
   }
 
   updateDeckDisplay(count: number): void {

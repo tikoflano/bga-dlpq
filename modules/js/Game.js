@@ -282,6 +282,15 @@ class GoldenPotatoView {
     }
 }
 
+class GoldenPotatoPileView {
+    setCount(count) {
+        const pileCountEl = document.querySelector("#golden-potato-pile-card .pile-count");
+        if (pileCountEl) {
+            pileCountEl.textContent = count.toString();
+        }
+    }
+}
+
 /**
  * Shared utility for rendering card elements.
  * Ensures consistent card appearance and behavior across the application.
@@ -1645,6 +1654,7 @@ class Game {
         this.deckView = new DeckView();
         this.discardView = new DiscardView();
         this.goldenPotatoView = new GoldenPotatoView();
+        this.goldenPotatoPileView = new GoldenPotatoPileView();
         console.log("dondelaspapasqueman constructor");
         this.bga = bga;
         this.stateHandlers = createStateHandlers(this);
@@ -1858,6 +1868,10 @@ class Game {
                 <div id="golden-potato-cards"></div>
             </div>
             <div id="common-area">
+                <div id="golden-potato-pile-card" class="golden-potato-pile-card">
+                    <div class="card-back"></div>
+                    <div class="pile-count">0</div>
+                </div>
                 <div id="deck-card" class="deck-card">
                     <div class="card-back"></div>
                     <div class="deck-count">0</div>
@@ -1874,7 +1888,8 @@ class Game {
         const currentPlayer = gamedatas.players?.[currentPlayerId];
         const goldenPotatoes = Number(currentPlayer?.golden_potatoes || currentPlayer?.score || 0);
         this.updateGoldenPotatoCards(goldenPotatoes);
-        // Update deck and discard displays
+        // Update golden potato pile, deck and discard displays
+        this.updateGoldenPotatoPileDisplay(gamedatas.goldenPotatoPileCount || 0);
         this.updateDeckDisplay(gamedatas.deckCount || 0);
         this.updateDiscardDisplay(gamedatas.discardTopCard ?? null);
         // Setup player panel counters
@@ -1920,6 +1935,9 @@ class Game {
                 this.bga.gameui.addTooltipHtml(nodeId, html);
             },
         });
+    }
+    updateGoldenPotatoPileDisplay(count) {
+        this.goldenPotatoPileView.setCount(count);
     }
     updateDeckDisplay(count) {
         this.deckView.setCount(count);
