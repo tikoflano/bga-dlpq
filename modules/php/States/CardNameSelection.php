@@ -39,8 +39,10 @@ class CardNameSelection extends GameState
             3 => Game::getCardName("potato", 3), // french fries
         ];
         
-        // Action cards (excluding interrupts which can't be stolen)
+        // Action cards (including interrupt cards)
         $cardNames["action"] = [
+            1 => Game::getCardName("action", 1), // No dude
+            2 => Game::getCardName("action", 2), // I told you no dude
             3 => Game::getCardName("action", 3), // Get off the pony
             4 => Game::getCardName("action", 4), // Lend me a buck
             5 => Game::getCardName("action", 5), // Runaway potatoes
@@ -79,9 +81,21 @@ class CardNameSelection extends GameState
 
         // Get action card data
         $actionCardData = $this->game->globals->get("action_card_data");
-        $cardData = unserialize($actionCardData);
+        if (!$actionCardData) {
+            throw new UserException("Action card data not found");
+        }
         
-        // Store selected card name
+        $cardData = unserialize($actionCardData);
+        if (!is_array($cardData)) {
+            throw new UserException("Invalid action card data");
+        }
+        
+        // Ensure card_id is preserved (it should already be there, but verify)
+        if (empty($cardData["card_id"])) {
+            throw new UserException("Card ID not found in action card data");
+        }
+        
+        // Store selected card name (preserving all existing data including card_id)
         $cardData["named_card_type"] = $cardType;
         $cardData["named_name_index"] = $nameIndex;
         $this->game->globals->set("action_card_data", serialize($cardData));

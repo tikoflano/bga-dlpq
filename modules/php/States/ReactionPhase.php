@@ -10,6 +10,7 @@ use Bga\GameFramework\States\PossibleAction;
 use Bga\GameFramework\UserException;
 use Bga\Games\DondeLasPapasQueman\Game;
 use Bga\Games\DondeLasPapasQueman\States\ActionResolution;
+use Bga\Games\DondeLasPapasQueman\States\EndScore;
 
 class ReactionPhase extends GameState {
     function __construct(protected Game $game) {
@@ -386,6 +387,15 @@ class ReactionPhase extends GameState {
 
         $this->applyPostReactionEffects($interruptPlayed, $isActionCard);
 
+        // Check win condition after all reactions are complete
+        $winnerId = $this->game->checkWinCondition();
+        if ($winnerId > 0) {
+            // Make all players inactive first to prevent any further actions
+            // This ensures no player can try to act after the game has ended
+            $this->game->gamestate->setAllPlayersNonMultiactive(EndScore::class);
+            return null; // Transition already happened via setAllPlayersNonMultiactive
+        }
+
         // Reset flags now that the reaction window is closing.
         $this->game->setGameStateValue("alarm_flag", 0);
         $this->game->setGameStateValue("interrupt_played", 0);
@@ -461,14 +471,27 @@ class ReactionPhase extends GameState {
             $activeList = array_values(array_filter(explode(",", $activeList)));
         }
         $isLast = is_array($activeList) ? count($activeList) <= 1 : true;
+        
         if ($isLast) {
             $this->applyPostReactionEffects($interruptPlayed, $isActionCard);
+            
+            // Check win condition after applying effects
+            $winnerId = $this->game->checkWinCondition();
+            if ($winnerId > 0) {
+                // Make all players inactive and transition to EndScore immediately
+                // This must be done BEFORE calling setPlayerNonMultiactive to prevent race conditions
+                // setAllPlayersNonMultiactive will make all players inactive and transition atomically
+                $this->game->gamestate->setAllPlayersNonMultiactive(EndScore::class);
+                return null; // Don't call setPlayerNonMultiactive - transition already happened
+            }
+            
             $this->game->setGameStateValue("alarm_flag", 0);
             $this->game->setGameStateValue("interrupt_played", 0);
         }
 
         // Make player inactive and transition if this is the last active player
         // setPlayerNonMultiactive will only transition if this is the last active player
+        // Note: This won't be called if game ended above due to early return
         $this->game->gamestate->setPlayerNonMultiactive($playerId, $nextState);
 
         return null;

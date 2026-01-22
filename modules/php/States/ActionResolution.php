@@ -9,6 +9,7 @@ use Bga\GameFramework\States\GameState;
 use Bga\Games\DondeLasPapasQueman\Game;
 use Bga\Games\DondeLasPapasQueman\States\PlayerTurn;
 use Bga\Games\DondeLasPapasQueman\States\NextPlayer;
+use Bga\Games\DondeLasPapasQueman\States\EndScore;
 
 class ActionResolution extends GameState
 {
@@ -27,6 +28,19 @@ class ActionResolution extends GameState
      */
     public function onEnteringState(int $activePlayerId)
     {
+        // Check if win condition was already detected in ReactionPhase
+        $winConditionMet = $this->game->getGameStateValue("win_condition_met") == 1;
+        if ($winConditionMet) {
+            $this->game->setGameStateValue("win_condition_met", 0);
+            return EndScore::class;
+        }
+        
+        // Also check win condition here as a fallback
+        $winnerId = $this->game->checkWinCondition();
+        if ($winnerId > 0) {
+            return EndScore::class;
+        }
+
         // Get action card data
         $actionCardData = $this->game->globals->get("action_card_data");
         if (!$actionCardData) {
@@ -52,14 +66,24 @@ class ActionResolution extends GameState
         // Now that reaction phase is complete and card wasn't interrupted, move it to discard
         if ($cardId > 0) {
             $playedCard = $this->game->cards->getCard($cardId);
-            $this->game->cards->moveCard($cardId, "discard");
-
+            
+            // Ensure card exists before moving
             if ($playedCard) {
+                // Move card to discard
+                $this->game->cards->moveCard($cardId, "discard");
+                
+                // Send notification that card was moved to discard
                 $this->game->notify->all("cardMovedToDiscard", '', [
                     "player_id" => $activePlayerId,
                     "card_id" => $cardId,
                     "card_type" => $playedCard["type"],
                     "card_type_arg" => isset($playedCard["type_arg"]) ? (int) $playedCard["type_arg"] : null,
+                ]);
+                
+                // Update the active player's hand to reflect the card being removed
+                $this->game->notify->player($activePlayerId, "handUpdated", '', [
+                    "hand" => array_values($this->game->cards->getPlayerHand($activePlayerId)),
+                    "deckCount" => $this->game->cards->countCardInLocation("deck"),
                 ]);
             }
         }
@@ -146,6 +170,7 @@ class ActionResolution extends GameState
             "i18n" => ["target_name"],
         ]);
 
+        // Don't check win condition here - let NextPlayer check it after all state transitions complete
         // Alarm card - end turn
         return NextPlayer::class;
     }
@@ -346,6 +371,7 @@ class ActionResolution extends GameState
             "i18n" => ["target_name"],
         ]);
 
+        // Don't check win condition here - let NextPlayer check it after all state transitions complete
         // Alarm card - end turn
         return NextPlayer::class;
     }
@@ -362,6 +388,8 @@ class ActionResolution extends GameState
             "player_name" => $this->game->getPlayerNameById($activePlayerId),
         ]);
 
+        // Don't check win condition here - if this is during a turn, NextPlayer will check it.
+        // If this is during PlayerTurn, the player can continue, and win will be checked at end of turn.
         return PlayerTurn::class;
     }
 

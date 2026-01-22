@@ -84,22 +84,10 @@ class NextPlayer extends \Bga\GameFramework\States\GameState
             }
         }
         
-        // Check win condition
-        $players = $this->game->getCollectionFromDb("SELECT player_id FROM player");
-        $playerCount = count($players);
-        
-        $winThreshold = match($playerCount) {
-            2, 3 => 8,
-            4, 5 => 6,
-            6 => 5,
-            default => 8,
-        };
-
-        foreach ($players as $player) {
-            $potatoes = $this->game->playerGoldenPotatoes->get((int) $player['player_id']);
-            if ($potatoes >= $winThreshold) {
-                return EndScore::class;
-            }
+        // Check win condition (using centralized method)
+        $winnerId = $this->game->checkWinCondition();
+        if ($winnerId > 0) {
+            return EndScore::class;
         }
         
         // Check if next player should be skipped

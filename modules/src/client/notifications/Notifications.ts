@@ -46,6 +46,9 @@ export class GameNotifications {
     if (playerId === this.game.bga.gameui.player_id) {
       this.game.updateGoldenPotatoCards(next);
     }
+
+    // Update player panel counter
+    this.game.updatePlayerPanelCounter(playerId);
   }
 
   async notif_handUpdated(args: any): Promise<void> {

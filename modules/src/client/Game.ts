@@ -77,6 +77,87 @@ class Game {
     this.selectedCards = [];
   }
 
+  /**
+   * Get win threshold based on player count
+   * Prefers value from server (single source of truth), with fallback calculation for backwards compatibility
+   */
+  getWinThreshold(): number {
+    // Prefer value from server (single source of truth)
+    if (this.gamedatas.winThreshold !== undefined) {
+      return this.gamedatas.winThreshold;
+    }
+    // Fallback calculation (for backwards compatibility or if server doesn't send it)
+    const playerCount = Object.keys(this.gamedatas.players || {}).length;
+    return playerCount <= 3 ? 8 : playerCount <= 5 ? 6 : 5;
+  }
+
+  /**
+   * Setup golden potato counter display in player panels
+   */
+  private setupPlayerPanelCounters(): void {
+    const winThreshold = this.getWinThreshold();
+    const players = this.gamedatas.players || {};
+
+    for (const playerIdStr in players) {
+      const playerId = Number(playerIdStr);
+      const player = players[playerId];
+      const goldenPotatoes = Number((player as any).golden_potatoes ?? (player as any).score ?? 0);
+
+      // Get player panel element
+      const panelElement = this.bga.playerPanels.getElement(playerId);
+      if (!panelElement) continue;
+
+      // Check if counter already exists
+      let counterElement = panelElement.querySelector('.golden-potato-counter');
+      if (!counterElement) {
+        // Create counter element
+        counterElement = document.createElement('div');
+        counterElement.className = 'golden-potato-counter';
+        counterElement.innerHTML = `
+          <span class="golden-potato-icon">🥔</span>
+          <span class="golden-potato-count">${goldenPotatoes}/${winThreshold}</span>
+        `;
+        panelElement.appendChild(counterElement);
+      } else {
+        // Update existing counter
+        const countSpan = counterElement.querySelector('.golden-potato-count');
+        if (countSpan) {
+          countSpan.textContent = `${goldenPotatoes}/${winThreshold}`;
+        }
+      }
+    }
+  }
+
+  /**
+   * Update golden potato counter for a specific player
+   */
+  updatePlayerPanelCounter(playerId: number): void {
+    const winThreshold = this.getWinThreshold();
+    const player = this.gamedatas.players?.[playerId];
+    if (!player) return;
+
+    const goldenPotatoes = Number((player as any).golden_potatoes ?? (player as any).score ?? 0);
+    const panelElement = this.bga.playerPanels.getElement(playerId);
+    if (!panelElement) return;
+
+    let counterElement = panelElement.querySelector('.golden-potato-counter');
+    if (counterElement) {
+      const countSpan = counterElement.querySelector('.golden-potato-count');
+      if (countSpan) {
+        countSpan.textContent = `${goldenPotatoes}/${winThreshold}`;
+      }
+    } else {
+      // Create if it doesn't exist
+      counterElement = document.createElement('div');
+      counterElement.className = 'golden-potato-counter';
+      counterElement.innerHTML = `
+        <span class="golden-potato-icon">🥔</span>
+        <span class="golden-potato-count">${goldenPotatoes}/${winThreshold}</span>
+      `;
+      panelElement.appendChild(counterElement);
+    }
+  }
+
   setup(gamedatas: DondeLasPapasQuemanGamedatas): void {
     console.log("Starting game setup");
     this.gamedatas = gamedatas;
@@ -114,6 +195,9 @@ class Game {
     // Update deck and discard displays
     this.updateDeckDisplay(gamedatas.deckCount || 0);
     this.updateDiscardDisplay(gamedatas.discardTopCard ?? null);
+
+    // Setup player panel counters
+    this.setupPlayerPanelCounters();
 
     // Setup game notifications
     this.notifications.setup();
@@ -312,13 +396,25 @@ class Game {
       // Play the interrupt card
       this.markReactionActionSent();
       const decoded = decodeCardTypeArg(card.type_arg || 0);
-      if (decoded.name_index === 1) {
-        // "No dude"
-        this.bga.actions.performAction("actPlayNoPoh", {});
-      } else if (decoded.name_index === 2) {
-        // "I told you no dude"
-        this.bga.actions.performAction("actPlayTeDijeQueNoPoh", {});
-      }
+      const actionPromise =
+        decoded.name_index === 1
+          ? // "No dude"
+            this.bga.actions.performAction("actPlayNoPoh", {})
+          : decoded.name_index === 2
+            ? // "I told you no dude"
+              this.bga.actions.performAction("actPlayTeDijeQueNoPoh", {})
+            : Promise.resolve();
+
+      // If the action fails (e.g., "No dude" cannot cancel threesomes),
+      // reset the flag and restart the timer so the UI doesn't get stuck
+      actionPromise?.catch(() => {
+        // Only reset if we're still in ReactionPhase (state might have changed)
+        if (this.gamedatas.gamestate.name === "ReactionPhase") {
+          this.resetReactionActionSent();
+          // Restart the timer and restore the skip button
+          this.onUpdateActionButtons("ReactionPhase", this.gamedatas.gamestate.args || null);
+        }
+      });
       return;
     }
 

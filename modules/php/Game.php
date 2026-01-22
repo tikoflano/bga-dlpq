@@ -46,6 +46,7 @@ class Game extends \Bga\GameFramework\Table {
             "interrupt_played" => 13,
             "skip_next_player" => 14,
             "turn_start_flag" => 15,
+            "win_condition_met" => 16,
         ]);
 
         $this->playerEnergy = $this->counterFactory->createPlayerCounter("energy");
@@ -137,8 +138,42 @@ class Game extends \Bga\GameFramework\Table {
     }
 
     /**
+     * Get win threshold based on player count
+     */
+    public function getWinThreshold(): int {
+        $players = $this->getCollectionFromDb("SELECT player_id FROM player");
+        $playerCount = count($players);
+
+        return match ($playerCount) {
+            2, 3 => 8,
+            4, 5 => 6,
+            6 => 5,
+            default => 8,
+        };
+    }
+
+    /**
+     * Check if any player has reached the win threshold
+     * Returns the player_id of the winner, or 0 if no winner yet
+     */
+    public function checkWinCondition(): int {
+        $winThreshold = $this->getWinThreshold();
+        $players = $this->getCollectionFromDb("SELECT player_id FROM player");
+
+        foreach ($players as $player) {
+            $potatoes = $this->playerGoldenPotatoes->get((int) $player["player_id"]);
+            if ($potatoes >= $winThreshold) {
+                return (int) $player["player_id"];
+            }
+        }
+
+        return 0;
+    }
+
+    /**
      * Update golden potatoes and sync the score
      * This ensures the player's score always matches their golden potatoes count
+     * Also checks for win condition immediately
      */
     public function updateGoldenPotatoes(int $playerId, int $delta): int {
         $newValue = $this->playerGoldenPotatoes->inc($playerId, $delta);
@@ -286,6 +321,9 @@ class Game extends \Bga\GameFramework\Table {
         // Get golden potato pile count (visible to all)
         $result["goldenPotatoPileCount"] = $this->cards->countCardInLocation("golden_potato_pile");
 
+        // Get win threshold (visible to all players)
+        $result["winThreshold"] = $this->getWinThreshold();
+
         return $result;
     }
 
@@ -303,6 +341,7 @@ class Game extends \Bga\GameFramework\Table {
         $this->setGameStateInitialValue("alarm_flag", 0);
         $this->setGameStateInitialValue("interrupt_played", 0);
         $this->setGameStateInitialValue("skip_next_player", 0);
+        $this->setGameStateInitialValue("win_condition_met", 0);
         // Note: reaction_data is stored in globals, not game state values
 
         $this->playerEnergy->initDb($playerIds, initialValue: 2);

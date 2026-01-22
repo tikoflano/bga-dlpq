@@ -11,6 +11,7 @@ use Bga\GameFramework\States\PossibleAction;
 use Bga\GameFramework\UserException;
 use Bga\Games\DondeLasPapasQueman\Game;
 use Bga\Games\DondeLasPapasQueman\States\TargetSelection;
+use Bga\Games\DondeLasPapasQueman\States\EndScore;
 
 class PlayerTurn extends GameState {
     function __construct(protected Game $game) {
@@ -27,6 +28,20 @@ class PlayerTurn extends GameState {
      * Called when entering this state
      */
     public function onEnteringState(int $activePlayerId) {
+        // Check if win condition was already detected in ReactionPhase
+        // If so, transition immediately (this handles cases where ReactionPhase.onLeavingState wasn't called)
+        $winConditionMet = $this->game->getGameStateValue("win_condition_met") == 1;
+        if ($winConditionMet) {
+            $this->game->setGameStateValue("win_condition_met", 0);
+            return EndScore::class;
+        }
+        
+        // Also check win condition here as a fallback
+        $winnerId = $this->game->checkWinCondition();
+        if ($winnerId > 0) {
+            return EndScore::class;
+        }
+
         $hand = $this->game->cards->getPlayerHand($activePlayerId);
         $handSize = count($hand);
 
