@@ -462,21 +462,39 @@
 
 /* Card Selection Modal */
 #card-selection-dialog {
-  .card-back {
-    width: 60px;
-    height: 90px;
-    background-color: #8b0000;
-    border: 2px solid #000;
-    border-radius: 5px;
-    cursor: pointer;
-    display: inline-block;
-    margin: 5px;
-    transition: all 0.2s ease;
+  // Ensure dialog can be positioned relative to game area
+  // Note: position will be set via JavaScript, don't force it here
+  z-index: 1000;
 
-    &:hover {
-      transform: translateY(-5px);
-      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
-      border-color: #ff6b6b;
+  #card-selection-cards {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    padding: 20px;
+
+    .card {
+      // Cards should maintain their size but be displayed in a row
+      flex-shrink: 0;
+    }
+
+    .card-back {
+      width: 60px;
+      height: 90px;
+      background-color: #8b0000;
+      border: 2px solid #000;
+      border-radius: 5px;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.2s ease;
+
+      &:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        border-color: #ff6b6b;
+      }
     }
   }
 }

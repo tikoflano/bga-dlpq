@@ -173,13 +173,12 @@ Each action card has:
 - **Value**: 3
 - **isAlarm**: false
 - **Target Required**: Yes (single opponent)
-- **Effect**: See an opponent's hand and steal a card from it. Player chooses card but only sees card backs (blind selection).
+- **Effect**: See an opponent's hand and steal a card from it. Player can see all cards in the opponent's hand before choosing which one to steal.
 - **Implementation Notes**:
   - Requires target selection before reaction phase
-  - Use card back selection UI to show target's hand
-  - Player clicks a card back to select it (without seeing actual card)
+  - Reveals the target's hand to the active player (shows actual card names and values)
+  - Player clicks a card to select it (can see what they're stealing)
   - Move selected card from target's hand to active player's hand
-  - Card is revealed only after selection
 
 #### 12. "Jump to the side" (name_index: 12)
 
@@ -234,11 +233,14 @@ Each action card has:
 
 - "Spider potato" (name_index: 14) - 2 players
 
-### Cards Using Card Back Selection UI
+### Cards Using Card Back Selection UI (Blind Selection)
 
 - "Lend me a buck" (name_index: 4)
-- "Potato Dawan" (name_index: 11)
 - "Papageddon" (name_index: 13)
+
+### Cards That Reveal Opponent's Hand
+
+- "Potato Dawan" (name_index: 11) - Shows actual cards before selection
 
 ### Alarm Cards (End Turn Automatically)
 

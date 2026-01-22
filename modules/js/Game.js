@@ -103,7 +103,7 @@ function getActionCardEffectText(nameIndex) {
         case 10:
             return _("Target discards their entire hand, then draws 2 new cards.");
         case 11:
-            return _("Steal 1 card from a target player’s hand (blind selection).");
+            return _("See an opponent's hand and steal a card from it.");
         case 12:
             return _("Draw 1 card. The next player skips their turn.");
         case 13:
@@ -282,6 +282,92 @@ class GoldenPotatoView {
     }
 }
 
+/**
+ * Shared utility for rendering card elements.
+ * Ensures consistent card appearance and behavior across the application.
+ */
+class CardRenderer {
+    /**
+     * Attaches tooltip to a card element that was created with createCardElement.
+     * Call this after the element has been appended to the DOM.
+     */
+    static attachTooltipAfterAppend(cardElement) {
+        const tooltipCallback = cardElement._tooltipCallback;
+        const card = cardElement._cardForTooltip;
+        if (tooltipCallback && card) {
+            tooltipCallback(cardElement.id, getCardTooltipHtml(card));
+        }
+    }
+    /**
+     * Creates and returns a card DOM element with proper styling and event handlers.
+     * The element is not yet attached to the DOM - caller should append it.
+     */
+    static createCardElement(options) {
+        const { card, selected = false, isReactionPhase = false, isThreesome = false, onClick, attachTooltip, customId = "dlpq-card-hand", customClassName = "", } = options;
+        const cardDiv = document.createElement("div");
+        cardDiv.className = `card ${customClassName}`.trim();
+        cardDiv.id = `${customId}-${card.id}`;
+        cardDiv.dataset.cardId = card.id.toString();
+        const cardName = getCardName(card);
+        const cardValue = getCardValue(card);
+        const decoded = decodeCardTypeArg(card.type_arg || 0);
+        const interrupt = isInterruptCard(card);
+        cardDiv.innerHTML = `
+      ${decoded.isAlarm ? '<div class="alarm-dot" title="' + _("Alarm") + '"></div>' : ""}
+      <div class="card-type">${card.type}</div>
+      <div class="card-name">${cardName}</div>
+      <div class="card-value">Value: ${cardValue}</div>
+    `;
+        if (onClick) {
+            cardDiv.addEventListener("click", () => onClick(card.id));
+        }
+        if (selected) {
+            cardDiv.classList.add("selected");
+        }
+        // Highlight interrupt cards during reaction phase
+        // If it's a threesome, only highlight "I told you no dude" (name_index === 2)
+        if (isReactionPhase && interrupt) {
+            if (isThreesome) {
+                // Only highlight "I told you no dude" for threesomes
+                if (decoded.name_index === 2) {
+                    cardDiv.classList.add("interrupt-card");
+                }
+            }
+            else {
+                // Highlight all interrupt cards for regular cards
+                cardDiv.classList.add("interrupt-card");
+            }
+        }
+        // Note: Tooltip attachment should be done by caller after element is appended to DOM
+        // We store the tooltip callback and card for later attachment
+        if (attachTooltip) {
+            // Store reference for later tooltip attachment after element is in DOM
+            // Caller should call attachTooltipAfterAppend after appending to DOM
+            cardDiv._tooltipCallback = attachTooltip;
+            cardDiv._cardForTooltip = card;
+        }
+        return cardDiv;
+    }
+    /**
+     * Creates a card element from revealed card data (used in card selection).
+     * Converts the revealed card data structure to a Card-like object.
+     */
+    static createCardElementFromRevealed(revealedCard, options) {
+        // Convert revealed card data to Card format
+        const card = {
+            id: revealedCard.card_id,
+            type: revealedCard.type,
+            type_arg: revealedCard.type_arg,
+        };
+        return this.createCardElement({
+            card,
+            onClick: options.onClick ? () => options.onClick(revealedCard.position) : undefined,
+            attachTooltip: options.attachTooltip,
+            customId: "dlpq-card-selection",
+        });
+    }
+}
+
 class HandView {
     render(args) {
         const handArea = document.getElementById("hand-area");
@@ -292,42 +378,18 @@ class HandView {
         if (!handCards)
             return;
         args.hand.forEach((card) => {
-            const cardDiv = document.createElement("div");
-            cardDiv.className = "card";
-            cardDiv.id = `dlpq-card-hand-${card.id}`;
-            cardDiv.dataset.cardId = card.id.toString();
-            const cardName = getCardName(card);
-            const cardValue = getCardValue(card);
-            const decoded = decodeCardTypeArg(card.type_arg || 0);
-            const interrupt = isInterruptCard(card);
-            cardDiv.innerHTML = `
-                ${decoded.isAlarm ? '<div class="alarm-dot" title="' + _("Alarm") + '"></div>' : ""}
-                <div class="card-type">${card.type}</div>
-                <div class="card-name">${cardName}</div>
-                <div class="card-value">Value: ${cardValue}</div>
-            `;
-            cardDiv.addEventListener("click", () => args.onCardClick(card.id));
-            if (args.selectedCardIds.includes(card.id)) {
-                cardDiv.classList.add("selected");
-            }
-            // Highlight interrupt cards during reaction phase
-            // If it's a threesome, only highlight "I told you no dude" (name_index === 2)
-            if (args.isReactionPhase && interrupt) {
-                if (args.isThreesome) {
-                    // Only highlight "I told you no dude" for threesomes
-                    if (decoded.name_index === 2) {
-                        cardDiv.classList.add("interrupt-card");
-                    }
-                }
-                else {
-                    // Highlight all interrupt cards for regular cards
-                    cardDiv.classList.add("interrupt-card");
-                }
-            }
+            const cardDiv = CardRenderer.createCardElement({
+                card,
+                selected: args.selectedCardIds.includes(card.id),
+                isReactionPhase: args.isReactionPhase,
+                isThreesome: args.isThreesome,
+                onClick: args.onCardClick,
+                attachTooltip: args.attachTooltip,
+            });
             handCards.appendChild(cardDiv);
-            // Attach tooltip after element is in DOM.
+            // Attach tooltip after element is in DOM
             if (args.attachTooltip) {
-                args.attachTooltip(cardDiv.id, getCardTooltipHtml(card));
+                CardRenderer.attachTooltipAfterAppend(cardDiv);
             }
         });
     }
@@ -551,35 +613,143 @@ class CardSelectionState {
         this.dialog.setTitle(_("Select a card from ${target_name}'s hand").replace("${target_name}", targetName));
         this.dialog.setMaxWidth(600);
         this.dialog.hideCloseIcon();
-        let cardsHtml = '<div id="card-selection-cards" style="text-align: center; padding: 20px;">';
-        if (args.cardBacks && Array.isArray(args.cardBacks)) {
-            args.cardBacks.forEach((cardBack) => {
-                cardsHtml += `
-          <div class="card-back" 
-               data-position="${cardBack.position}" 
-               style="width: 60px; height: 90px; background-color: #8B0000; border: 2px solid #000; border-radius: 5px; cursor: pointer; display: inline-block; margin: 5px;">
-          </div>
-        `;
-            });
-        }
-        cardsHtml += "</div>";
+        // Check if cards are revealed (Potato Dawan) or just card backs (blind selection)
+        const revealedCards = args.revealedCards && Array.isArray(args.revealedCards) ? args.revealedCards : null;
+        const cardBacks = args.cardBacks && Array.isArray(args.cardBacks) ? args.cardBacks : [];
+        // Create container div HTML first - use flexbox to display cards in a row
+        const cardsHtml = '<div id="card-selection-cards" style="display: flex; flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px; padding: 20px;"></div>';
         this.dialog.setContent(cardsHtml);
         this.dialog.show();
-        setTimeout(() => {
-            const cardsDiv = document.getElementById("card-selection-cards");
-            if (!cardsDiv)
+        // Helper function to center dialog relative to game area
+        const centerDialog = () => {
+            const dialogElement = document.getElementById("card-selection-dialog");
+            const gameArea = this.game.bga.gameArea.getElement();
+            if (!dialogElement) {
+                console.warn("Dialog element not found for centering");
                 return;
-            const cardBacks = cardsDiv.querySelectorAll(".card-back");
-            cardBacks.forEach((backDiv) => {
-                backDiv.addEventListener("click", () => {
-                    const position = parseInt(backDiv.dataset.position || "0");
-                    this.game.bga.actions.performAction("actSelectCard", {
-                        cardPosition: position,
-                    });
-                    this.hide();
-                });
+            }
+            if (!gameArea) {
+                console.warn("Game area not found for centering");
+                return;
+            }
+            const gameAreaRect = gameArea.getBoundingClientRect();
+            const dialogRect = dialogElement.getBoundingClientRect();
+            console.log("Centering dialog - gameArea:", gameAreaRect, "dialog:", dialogRect);
+            // Only position if we have valid dimensions
+            if (dialogRect.width > 0 && dialogRect.height > 0 && gameAreaRect.width > 0) {
+                // Calculate center position relative to game area
+                const centerX = gameAreaRect.left + gameAreaRect.width / 2;
+                const centerY = gameAreaRect.top + gameAreaRect.height / 2;
+                // Position dialog at center, accounting for dialog's own dimensions
+                const left = Math.max(0, centerX - dialogRect.width / 2);
+                const top = Math.max(0, centerY - dialogRect.height / 2);
+                console.log("Positioning dialog at:", left, top);
+                // Apply positioning (use fixed positioning relative to viewport, but calculated from game area)
+                dialogElement.style.position = "fixed";
+                dialogElement.style.left = `${left}px`;
+                dialogElement.style.top = `${top}px`;
+                dialogElement.style.margin = "0";
+                dialogElement.style.transform = "none";
+            }
+            else {
+                console.warn("Dialog or game area has invalid dimensions, skipping positioning");
+            }
+        };
+        // Now that dialog is shown, get the container and append cards
+        setTimeout(() => {
+            const cardsContainer = document.getElementById("card-selection-cards");
+            if (!cardsContainer) {
+                console.error("Card selection container not found");
+                // Try to find the dialog to see if it exists
+                const dialogElement = document.getElementById("card-selection-dialog");
+                console.error("Dialog element exists:", !!dialogElement);
+                if (dialogElement) {
+                    console.error("Dialog HTML:", dialogElement.innerHTML.substring(0, 200));
+                }
+                return;
+            }
+            // Check what we have
+            const hasRevealedCards = revealedCards && revealedCards.length > 0;
+            const hasCardBacks = cardBacks && cardBacks.length > 0;
+            console.log("Card selection args:", {
+                revealedCards: revealedCards,
+                cardBacks: cardBacks,
+                hasRevealedCards,
+                hasCardBacks,
+                targetName: args.targetPlayerName
             });
-        }, 100);
+            if (hasRevealedCards) {
+                // Show actual cards with their names and values (Potato Dawan)
+                // Use CardRenderer to ensure they look exactly like hand cards
+                console.log("Rendering revealed cards, count:", revealedCards.length);
+                revealedCards.forEach((revealedCard) => {
+                    const cardDiv = CardRenderer.createCardElementFromRevealed(revealedCard, {
+                        onClick: (position) => {
+                            this.game.bga.actions.performAction("actSelectCard", {
+                                cardPosition: position,
+                            });
+                            this.hide();
+                        },
+                        attachTooltip: (nodeId, html) => {
+                            // Safe on rerenders: remove then re-add.
+                            this.game.bga.gameui.removeTooltip(nodeId);
+                            this.game.bga.gameui.addTooltipHtml(nodeId, html);
+                        },
+                    });
+                    cardsContainer.appendChild(cardDiv);
+                    console.log("Appended revealed card:", revealedCard);
+                    // Attach tooltip after element is in DOM
+                    CardRenderer.attachTooltipAfterAppend(cardDiv);
+                });
+            }
+            else if (hasCardBacks) {
+                // Show card backs only (blind selection)
+                console.log("Rendering card backs, count:", cardBacks.length);
+                cardBacks.forEach((cardBack) => {
+                    const backDiv = document.createElement("div");
+                    backDiv.className = "card-back";
+                    backDiv.dataset.position = cardBack.position.toString();
+                    // Apply styles directly since CSS might not be matching
+                    backDiv.style.width = "60px";
+                    backDiv.style.height = "90px";
+                    backDiv.style.backgroundColor = "#8b0000";
+                    backDiv.style.border = "2px solid #000";
+                    backDiv.style.borderRadius = "5px";
+                    backDiv.style.cursor = "pointer";
+                    backDiv.style.flexShrink = "0";
+                    backDiv.style.transition = "all 0.2s ease";
+                    // Add hover effect via event listeners
+                    backDiv.addEventListener("mouseenter", () => {
+                        backDiv.style.transform = "translateY(-5px)";
+                        backDiv.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.3)";
+                        backDiv.style.borderColor = "#ff6b6b";
+                    });
+                    backDiv.addEventListener("mouseleave", () => {
+                        backDiv.style.transform = "";
+                        backDiv.style.boxShadow = "";
+                        backDiv.style.borderColor = "#000";
+                    });
+                    backDiv.addEventListener("click", () => {
+                        const position = parseInt(backDiv.dataset.position || "0");
+                        this.game.bga.actions.performAction("actSelectCard", {
+                            cardPosition: position,
+                        });
+                        this.hide();
+                    });
+                    cardsContainer.appendChild(backDiv);
+                    console.log("Appended card back at position:", cardBack.position, "element:", backDiv);
+                });
+                console.log("Container after appending card backs:", cardsContainer.innerHTML.substring(0, 300));
+            }
+            else {
+                console.warn("No cards to display in card selection - args:", args);
+            }
+            // Center the dialog after cards are added (dialog size may have changed)
+            // Use a small delay to ensure DOM is updated
+            setTimeout(() => {
+                centerDialog();
+            }, 100);
+        }, 150);
     }
     hide() {
         if (this.dialog) {

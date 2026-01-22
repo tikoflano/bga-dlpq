@@ -122,21 +122,46 @@ class CardSelection extends GameState {
         $targetHand = array_values($this->game->cards->getPlayerHand($targetPlayerId));
         $handSize = count($targetHand);
 
-        // Create card back data (don't reveal actual cards, just show positions)
+        // Check if this is Potato Dawan (name_index 11) - it reveals the opponent's hand
+        $nameIndex = (int) ($cardData["name_index"] ?? 0);
+        $revealCards = ($nameIndex === 11); // Potato Dawan shows actual cards
+
+        // Create card data - either card backs (blind) or actual cards (revealed)
         $cardBacks = [];
+        $revealedCards = [];
         foreach ($targetHand as $index => $card) {
             $cardBacks[] = [
                 "position" => $index, // Position in hand
             ];
+            
+            if ($revealCards) {
+                // For Potato Dawan, reveal actual card information
+                $decoded = Game::decodeCardTypeArg((int) $card["type_arg"]);
+                $revealedCards[] = [
+                    "position" => $index,
+                    "card_id" => (int) $card["id"],
+                    "type" => $card["type"],
+                    "type_arg" => (int) $card["type_arg"],
+                    "name_index" => $decoded["name_index"],
+                    "value" => $decoded["value"],
+                    "is_alarm" => $decoded["isAlarm"],
+                ];
+            }
         }
 
-        return [
+        $result = [
             "targetPlayerId" => $targetPlayerId,
             "targetPlayerName" => $this->game->getPlayerNameById($targetPlayerId),
             "targetPlayerColor" => $this->game->getPlayerColorById($targetPlayerId),
             "handSize" => $handSize,
             "cardBacks" => $cardBacks,
         ];
+        
+        if ($revealCards) {
+            $result["revealedCards"] = $revealedCards;
+        }
+        
+        return $result;
     }
 
     /**

@@ -113,7 +113,7 @@ function getActionCardEffectText(nameIndex: number): string {
     case 10:
       return _("Target discards their entire hand, then draws 2 new cards.");
     case 11:
-      return _("Steal 1 card from a target player’s hand (blind selection).");
+      return _("See an opponent's hand and steal a card from it.");
     case 12:
       return _("Draw 1 card. The next player skips their turn.");
     case 13:

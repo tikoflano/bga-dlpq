@@ -421,18 +421,32 @@
 }
 
 /* Card Selection Modal */
-#card-selection-dialog .card-back {
+#card-selection-dialog {
+  z-index: 1000;
+}
+#card-selection-dialog #card-selection-cards {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  padding: 20px;
+}
+#card-selection-dialog #card-selection-cards .card {
+  flex-shrink: 0;
+}
+#card-selection-dialog #card-selection-cards .card-back {
   width: 60px;
   height: 90px;
   background-color: #8b0000;
   border: 2px solid #000;
   border-radius: 5px;
   cursor: pointer;
-  display: inline-block;
-  margin: 5px;
+  flex-shrink: 0;
   transition: all 0.2s ease;
 }
-#card-selection-dialog .card-back:hover {
+#card-selection-dialog #card-selection-cards .card-back:hover {
   transform: translateY(-5px);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
   border-color: #ff6b6b;
