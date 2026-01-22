@@ -1017,7 +1017,9 @@ class GameNotifications {
             this.game.removeCardFromMyHand(playedCardId);
         }
         // Update card count for the player who played the card
-        if (playerId !== null) {
+        // NOTE: For the active player, handUpdated already updated the count correctly,
+        // so we only update for other players' views
+        if (playerId !== null && playerId !== this.game.bga.gameui.player_id) {
             const gd = this.game.getGamedatas();
             if (gd.players?.[playerId]) {
                 const currentCount = Number(gd.players[playerId].handCount ?? 0);
@@ -1236,6 +1238,18 @@ class GameNotifications {
         const deckCount = this.asInt(args.deckCount);
         if (deckCount !== null) {
             this.setDeckCount(deckCount);
+        }
+        // Update card count for the player who drew cards (+2)
+        // NOTE: For the active player, handUpdated already updated the count correctly,
+        // so we only update for other players' views
+        const playerId = this.asInt(args.player_id);
+        if (playerId !== null && playerId !== this.game.bga.gameui.player_id) {
+            const gd = this.game.getGamedatas();
+            if (gd.players?.[playerId]) {
+                const currentCount = Number(gd.players[playerId].handCount ?? 0);
+                gd.players[playerId].handCount = currentCount + 2;
+                this.game.updatePlayerCardCount(playerId);
+            }
         }
     }
     async notif_popePotato(args) {

@@ -127,7 +127,7 @@ class PlayerTurn extends GameState {
             throw new UserException("Hand is empty");
         }
         $card = $handArray[0];
-        $this->game->moveCardToDiscard($card["id"]);
+        $this->game->moveCardToDiscard((int) $card["id"]);
 
         $this->game->cards->pickCards(3, "deck", $activePlayerId);
 
@@ -251,7 +251,7 @@ class PlayerTurn extends GameState {
 
         // Move cards to discard
         foreach ($cards as $card) {
-            $this->game->moveCardToDiscard($card["id"]);
+            $this->game->moveCardToDiscard((int) $card["id"]);
         }
 
         // Immediately remove the cards from the active player's hand (UI should update before interrupt phase).

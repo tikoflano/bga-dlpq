@@ -384,7 +384,7 @@ class ActionResolution extends GameState
         // Discard entire hand
         $targetHand = $this->game->cards->getPlayerHand($targetPlayerId);
         foreach ($targetHand as $card) {
-            $this->game->moveCardToDiscard($card["id"]);
+            $this->game->moveCardToDiscard((int) $card["id"]);
         }
 
         // Draw 2 cards (handle deck exhaustion)

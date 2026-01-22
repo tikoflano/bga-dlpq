@@ -230,7 +230,7 @@ class ReactionPhase extends GameState {
         $this->game->setGameStateValue("interrupt_played", 1);
 
         // Move "No dude" to discard
-        $this->game->moveCardToDiscard($noPohCard["id"]);
+        $this->game->moveCardToDiscard((int) $noPohCard["id"]);
 
         // Notify all players that the interrupt card was moved to discard
         $this->game->notify->all("cardMovedToDiscard", "", [
@@ -300,7 +300,7 @@ class ReactionPhase extends GameState {
         $this->game->setGameStateValue("interrupt_played", 1);
 
         // Move "I told you no dude" to discard
-        $this->game->moveCardToDiscard($teDijeCard["id"]);
+        $this->game->moveCardToDiscard((int) $teDijeCard["id"]);
 
         // Notify all players that the interrupt card was moved to discard
         $this->game->notify->all("cardMovedToDiscard", "", [
