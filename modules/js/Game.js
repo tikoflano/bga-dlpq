@@ -336,7 +336,12 @@ class ActionResolutionState {
 class CardNameSelectionState {
     constructor(game) {
         this.game = game;
-        this.dialog = null;
+        this.panelElement = null;
+        this.backdropElement = null;
+        this.gameAreaPositionModified = false;
+        this.handArea = null;
+        this.handAreaParent = null;
+        this.handAreaNextSibling = null;
     }
     onEnter(args) {
         const a = args?.args || args;
@@ -349,33 +354,72 @@ class CardNameSelectionState {
         if (!this.game.bga.gameui.isCurrentPlayerActive())
             return;
         this.hide();
-        this.dialog = new ebg.popindialog();
-        this.dialog.create("card-name-selection-dialog");
-        this.dialog.setTitle(_("Name a card"));
-        this.dialog.setMaxWidth(500);
-        this.dialog.hideCloseIcon();
         const cardNames = args?.cardNames || {};
-        let contentHtml = `
-      <div id="card-name-selection-content" style="padding: 20px;">
-        <div style="margin-bottom: 15px;">
-          <label for="card-type-select" style="display: block; margin-bottom: 5px; font-weight: bold;">${_("Card Type")}</label>
-          <select id="card-type-select" class="card-type-select" style="width: 100%; padding: 8px; font-size: 14px;">
+        // Get the hand area to move it into the panel
+        const handArea = document.getElementById("hand-area");
+        if (!handArea)
+            return;
+        // Store hand area references for restoration
+        this.handArea = handArea;
+        this.handAreaParent = handArea.parentNode;
+        this.handAreaNextSibling = handArea.nextSibling;
+        // Get the game area to position the backdrop
+        const gameArea = this.game.bga.gameArea.getElement();
+        if (!gameArea)
+            return;
+        // Ensure game area has position relative for backdrop positioning
+        const gameAreaStyle = window.getComputedStyle(gameArea);
+        if (gameAreaStyle.position === "static") {
+            gameArea.style.position = "relative";
+            this.gameAreaPositionModified = true;
+        }
+        else {
+            this.gameAreaPositionModified = false;
+        }
+        // Create backdrop overlay - append to game area so it only covers the player area
+        const backdrop = document.createElement("div");
+        backdrop.id = "card-name-selection-backdrop";
+        backdrop.className = "card-name-selection-backdrop";
+        gameArea.appendChild(backdrop);
+        this.backdropElement = backdrop;
+        // Create the inline selection panel
+        const panel = document.createElement("div");
+        panel.id = "card-name-selection-panel";
+        panel.className = "card-name-selection-panel";
+        panel.innerHTML = `
+      <div class="card-name-selection-header">
+        <h3>${_("Name a card")}</h3>
+      </div>
+      <div class="card-name-selection-content">
+        <div class="card-name-selection-field">
+          <label for="card-type-select">${_("Card Type")}</label>
+          <select id="card-type-select" class="card-type-select">
             <option value="">${_("Select card type...")}</option>
           </select>
         </div>
-        <div style="margin-bottom: 15px;">
-          <label for="card-name-select" style="display: block; margin-bottom: 5px; font-weight: bold;">${_("Card Name")}</label>
-          <select id="card-name-select" class="card-name-select" disabled style="width: 100%; padding: 8px; font-size: 14px;">
+        <div class="card-name-selection-field">
+          <label for="card-name-select">${_("Card Name")}</label>
+          <select id="card-name-select" class="card-name-select" disabled>
             <option value="">${_("Select card name...")}</option>
           </select>
         </div>
-        <div style="text-align: center; margin-top: 20px;">
-          <button id="confirm-card-name" class="bgabutton" disabled style="cursor: not-allowed;">${_("Confirm")}</button>
+        <div class="card-name-selection-actions">
+          <button id="confirm-card-name" class="bgabutton" disabled>${_("Confirm")}</button>
         </div>
       </div>
+      <div class="card-name-selection-hand-container"></div>
     `;
-        this.dialog.setContent(contentHtml);
-        this.dialog.show();
+        // Insert the panel where the hand area was
+        if (this.handAreaParent) {
+            this.handAreaParent.insertBefore(panel, this.handAreaNextSibling);
+        }
+        // Move the hand area into the panel
+        const handContainer = panel.querySelector(".card-name-selection-hand-container");
+        if (handContainer) {
+            handContainer.appendChild(handArea);
+        }
+        this.panelElement = panel;
+        // Setup event handlers
         setTimeout(() => {
             const cardTypeSelect = document.getElementById("card-type-select");
             const cardNameSelect = document.getElementById("card-name-select");
@@ -434,11 +478,33 @@ class CardNameSelectionState {
         }, 100);
     }
     hide() {
-        if (this.dialog) {
-            this.dialog.hide();
-            this.dialog.destroy();
-            this.dialog = null;
+        // Restore hand area to its original position before removing panel
+        if (this.handArea && this.handAreaParent) {
+            if (this.handAreaNextSibling) {
+                this.handAreaParent.insertBefore(this.handArea, this.handAreaNextSibling);
+            }
+            else {
+                this.handAreaParent.appendChild(this.handArea);
+            }
         }
+        if (this.panelElement) {
+            this.panelElement.remove();
+            this.panelElement = null;
+        }
+        if (this.backdropElement) {
+            const gameArea = this.game.bga.gameArea.getElement();
+            this.backdropElement.remove();
+            this.backdropElement = null;
+            // Reset game area position if we modified it
+            if (this.gameAreaPositionModified && gameArea) {
+                gameArea.style.position = "";
+                this.gameAreaPositionModified = false;
+            }
+        }
+        // Clear references
+        this.handArea = null;
+        this.handAreaParent = null;
+        this.handAreaNextSibling = null;
     }
 }
 
