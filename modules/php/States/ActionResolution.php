@@ -57,36 +57,15 @@ class ActionResolution extends GameState
         $interruptPlayed = $this->game->getGameStateValue("interrupt_played") == 1;
         
         if ($interruptPlayed) {
-            // Card was interrupted, return card to hand (it was never moved to discard)
+            // Card was interrupted - the effect is cancelled, but the card stays in discard
+            // (it was already moved to discard when played)
             // Clear action card data
             $this->game->globals->set("action_card_data", "");
             return PlayerTurn::class;
         }
 
-        // Now that reaction phase is complete and card wasn't interrupted, move it to discard
-        if ($cardId > 0) {
-            $playedCard = $this->game->cards->getCard($cardId);
-            
-            // Ensure card exists before moving
-            if ($playedCard) {
-                // Move card to discard
-                $this->game->cards->moveCard($cardId, "discard");
-                
-                // Send notification that card was moved to discard
-                $this->game->notify->all("cardMovedToDiscard", '', [
-                    "player_id" => $activePlayerId,
-                    "card_id" => $cardId,
-                    "card_type" => $playedCard["type"],
-                    "card_type_arg" => isset($playedCard["type_arg"]) ? (int) $playedCard["type_arg"] : null,
-                ]);
-                
-                // Update the active player's hand to reflect the card being removed
-                $this->game->notify->player($activePlayerId, "handUpdated", '', [
-                    "hand" => array_values($this->game->cards->getPlayerHand($activePlayerId)),
-                    "deckCount" => $this->game->cards->countCardInLocation("deck"),
-                ]);
-            }
-        }
+        // Card was not interrupted - proceed to resolve the action card effect
+        // (Card is already in discard from when it was played)
 
         // Resolve action card effect based on name_index
         $nextState = $this->resolveActionCard($nameIndex, $cardData, $activePlayerId);
@@ -405,7 +384,7 @@ class ActionResolution extends GameState
         // Discard entire hand
         $targetHand = $this->game->cards->getPlayerHand($targetPlayerId);
         foreach ($targetHand as $card) {
-            $this->game->cards->moveCard($card["id"], "discard");
+            $this->game->moveCardToDiscard($card["id"]);
         }
 
         // Draw 2 cards (handle deck exhaustion)

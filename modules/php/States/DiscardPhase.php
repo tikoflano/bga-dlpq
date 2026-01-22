@@ -95,7 +95,7 @@ class DiscardPhase extends GameState
                 $discardedCards[] = $cardPublic;
                 $lastDiscardedCard = $cardPublic;
             }
-            $this->game->cards->moveCard($cardId, 'discard');
+            $this->game->moveCardToDiscard($cardId);
         }
 
         $discardedNames = array_map(function ($c) {

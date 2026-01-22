@@ -334,6 +334,30 @@ class Game extends \Bga\GameFramework\Table {
     }
 
     /**
+     * Get the next location_arg value for the discard pile.
+     * This ensures that cards moved to discard are ordered correctly (newest on top).
+     * 
+     * @return int The next location_arg value to use when moving a card to discard
+     */
+    public function getNextDiscardLocationArg(): int {
+        $maxLocationArg = $this->getUniqueValueFromDb(
+            "SELECT COALESCE(MAX(card_location_arg), -1) FROM card WHERE card_location = 'discard'"
+        );
+        return (int) $maxLocationArg + 1;
+    }
+
+    /**
+     * Move a card to the discard pile with the correct location_arg to ensure proper ordering.
+     * 
+     * @param int $cardId The ID of the card to move
+     * @return void
+     */
+    public function moveCardToDiscard(int $cardId): void {
+        $locationArg = $this->getNextDiscardLocationArg();
+        $this->cards->moveCard($cardId, "discard", $locationArg);
+    }
+
+    /**
      * This method is called only once, when a new game is launched. In this method, you must setup the game
      *  according to the game rules, so that the game is ready to be played.
      */

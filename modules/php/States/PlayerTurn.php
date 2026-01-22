@@ -127,7 +127,7 @@ class PlayerTurn extends GameState {
             throw new UserException("Hand is empty");
         }
         $card = $handArray[0];
-        $this->game->cards->moveCard($card["id"], "discard");
+        $this->game->moveCardToDiscard($card["id"]);
 
         $this->game->cards->pickCards(3, "deck", $activePlayerId);
 
@@ -251,7 +251,7 @@ class PlayerTurn extends GameState {
 
         // Move cards to discard
         foreach ($cards as $card) {
-            $this->game->cards->moveCard($card["id"], "discard");
+            $this->game->moveCardToDiscard($card["id"]);
         }
 
         // Immediately remove the cards from the active player's hand (UI should update before interrupt phase).
@@ -334,9 +334,24 @@ class PlayerTurn extends GameState {
         // Clear turn start flag since player has played a card
         $this->game->setGameStateValue("turn_start_flag", 0);
 
-        // Don't move card to discard yet - it could be interrupted
-        // The card will be moved to discard in ActionResolution after the reaction phase
-        // For now, just notify that the card is being played
+        // Move card to discard immediately when played (interruption only cancels the effect, not the discard)
+        $this->game->moveCardToDiscard($card_id);
+
+        // Send notification that card was moved to discard
+        $this->game->notify->all("cardMovedToDiscard", '', [
+            "player_id" => $activePlayerId,
+            "card_id" => $card_id,
+            "card_type" => $card["type"],
+            "card_type_arg" => isset($card["type_arg"]) ? (int) $card["type_arg"] : null,
+        ]);
+
+        // Update the active player's hand to reflect the card being removed
+        $this->game->notify->player($activePlayerId, "handUpdated", '', [
+            "hand" => array_values($this->game->cards->getPlayerHand($activePlayerId)),
+            "deckCount" => $this->game->cards->countCardInLocation("deck"),
+        ]);
+
+        // Notify that the card is being played
         $this->notify->all("cardPlayed", clienttranslate('${player_name} plays ${card_name}'), [
             "player_id" => $activePlayerId,
             "player_name" => $this->game->getPlayerNameById($activePlayerId),

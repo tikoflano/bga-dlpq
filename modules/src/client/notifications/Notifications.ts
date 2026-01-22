@@ -77,6 +77,9 @@ export class GameNotifications {
     const playedCardId = this.asInt(args.card_id);
     const playedCardTypeArg = this.asInt(args.card_type_arg);
     const playedCardType = typeof args.card_type === "string" ? args.card_type : null;
+    
+    // Cards are moved to discard immediately when played, so we can optimistically show them
+    // The cardMovedToDiscard notification will confirm it, but this provides immediate feedback
     if (playedCardId !== null && playedCardTypeArg !== null && playedCardType) {
       this.game.optimisticallySetDiscard({
         id: playedCardId,

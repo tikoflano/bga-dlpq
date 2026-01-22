@@ -1003,6 +1003,8 @@ class GameNotifications {
         const playedCardId = this.asInt(args.card_id);
         const playedCardTypeArg = this.asInt(args.card_type_arg);
         const playedCardType = typeof args.card_type === "string" ? args.card_type : null;
+        // Cards are moved to discard immediately when played, so we can optimistically show them
+        // The cardMovedToDiscard notification will confirm it, but this provides immediate feedback
         if (playedCardId !== null && playedCardTypeArg !== null && playedCardType) {
             this.game.optimisticallySetDiscard({
                 id: playedCardId,
@@ -1780,11 +1782,15 @@ class Game {
         this.updateDiscardDisplay(card);
     }
     confirmDiscardMovedToDiscard(card) {
+        // Always update the display to show the confirmed card (this overrides any pending discard)
         this.updateDiscardDisplay(card);
+        // Clear pending discard state if this matches the pending card
         if (this.pendingDiscardCardId === card.id) {
             this.pendingDiscardCardId = null;
             this.discardBeforePending = null;
         }
+        // Note: If there's a different pending discard, we leave it for cardCancelled to handle
+        // The display is already updated to show this card, so the pending state is just for cleanup
     }
     cancelPendingDiscard(cardId) {
         if (this.pendingDiscardCardId !== cardId)

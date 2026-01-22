@@ -115,22 +115,8 @@ class ReactionPhase extends GameState {
                 }
             }
 
-            // Regular single card: move it to discard now that reactions are complete.
-            if (($data["type"] ?? "") === "card") {
-                $cardId = (int) ($data["card_id"] ?? 0);
-                if ($cardId > 0) {
-                    $playedCard = $this->game->cards->getCard($cardId);
-                    if ($playedCard) {
-                        $this->game->cards->moveCard($cardId, "discard");
-                        $this->game->notify->all("cardMovedToDiscard", "", [
-                            "player_id" => (int) ($data["player_id"] ?? 0),
-                            "card_id" => $cardId,
-                            "card_type" => $playedCard["type"],
-                            "card_type_arg" => isset($playedCard["type_arg"]) ? (int) $playedCard["type_arg"] : null,
-                        ]);
-                    }
-                }
-            }
+            // Regular single card: card is already in discard (moved when played).
+            // No need to move it again - just proceed to action resolution.
         } else {
             // If an action card was interrupted, clear pending data so we don't carry stale selections.
             if ($isActionCard) {
@@ -244,7 +230,15 @@ class ReactionPhase extends GameState {
         $this->game->setGameStateValue("interrupt_played", 1);
 
         // Move "No dude" to discard
-        $this->game->cards->moveCard($noPohCard["id"], "discard");
+        $this->game->moveCardToDiscard($noPohCard["id"]);
+
+        // Notify all players that the interrupt card was moved to discard
+        $this->game->notify->all("cardMovedToDiscard", "", [
+            "player_id" => $playerId,
+            "card_id" => $noPohCard["id"],
+            "card_type" => $noPohCard["type"],
+            "card_type_arg" => isset($noPohCard["type_arg"]) ? (int) $noPohCard["type_arg"] : null,
+        ]);
 
         // Notify all players that the interrupt card was played (so frontend can remove it from hand)
         $this->notify->all("cardPlayed", clienttranslate('${player_name} plays ${card_name}'), [
@@ -306,7 +300,15 @@ class ReactionPhase extends GameState {
         $this->game->setGameStateValue("interrupt_played", 1);
 
         // Move "I told you no dude" to discard
-        $this->game->cards->moveCard($teDijeCard["id"], "discard");
+        $this->game->moveCardToDiscard($teDijeCard["id"]);
+
+        // Notify all players that the interrupt card was moved to discard
+        $this->game->notify->all("cardMovedToDiscard", "", [
+            "player_id" => $playerId,
+            "card_id" => $teDijeCard["id"],
+            "card_type" => $teDijeCard["type"],
+            "card_type_arg" => isset($teDijeCard["type_arg"]) ? (int) $teDijeCard["type_arg"] : null,
+        ]);
 
         // Notify all players that the interrupt card was played (so frontend can remove it from hand)
         $this->notify->all("cardPlayed", clienttranslate('${player_name} plays ${card_name}'), [

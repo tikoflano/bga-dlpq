@@ -406,12 +406,16 @@ class Game {
   }
 
   confirmDiscardMovedToDiscard(card: Card): void {
+    // Always update the display to show the confirmed card (this overrides any pending discard)
     this.updateDiscardDisplay(card);
 
+    // Clear pending discard state if this matches the pending card
     if (this.pendingDiscardCardId === card.id) {
       this.pendingDiscardCardId = null;
       this.discardBeforePending = null;
     }
+    // Note: If there's a different pending discard, we leave it for cardCancelled to handle
+    // The display is already updated to show this card, so the pending state is just for cleanup
   }
 
   cancelPendingDiscard(cardId: number): void {
