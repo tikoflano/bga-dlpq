@@ -904,8 +904,8 @@ class ReactionPhaseState {
     onLeave() {
         this.stopTimer();
         this.game.resetReactionActionSent();
-        // Best effort: refresh hand to remove interrupt highlighting.
-        this.game.updateHand(this.game.getGamedatas().hand || []);
+        // Explicitly remove interrupt highlighting by passing false for isReactionPhase
+        this.game.updateHand(this.game.getGamedatas().hand || [], false);
     }
     onUpdateActionButtons(args) {
         // MULTIPLE_ACTIVE_PLAYER: use players.isCurrentPlayerActive()
@@ -1903,8 +1903,10 @@ class Game {
     }
     ///////////////////////////////////////////////////
     //// Utility methods
-    updateHand(hand) {
-        const isReactionPhase = this.gamedatas.gamestate.name === "ReactionPhase" && this.bga.players.isCurrentPlayerActive();
+    updateHand(hand, overrideIsReactionPhase) {
+        const isReactionPhase = overrideIsReactionPhase !== undefined
+            ? overrideIsReactionPhase
+            : this.gamedatas.gamestate.name === "ReactionPhase" && this.bga.players.isCurrentPlayerActive();
         const isThreesome = isReactionPhase && this.gamedatas.gamestate.args?.is_threesome === true;
         this.handView.render({
             hand,

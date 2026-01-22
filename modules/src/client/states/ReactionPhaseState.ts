@@ -21,8 +21,8 @@ export class ReactionPhaseState implements ClientStateHandler {
   onLeave(): void {
     this.stopTimer();
     this.game.resetReactionActionSent();
-    // Best effort: refresh hand to remove interrupt highlighting.
-    this.game.updateHand(this.game.getGamedatas().hand || []);
+    // Explicitly remove interrupt highlighting by passing false for isReactionPhase
+    this.game.updateHand(this.game.getGamedatas().hand || [], false);
   }
 
   onUpdateActionButtons(args: any): void {

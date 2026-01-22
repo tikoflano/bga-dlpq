@@ -331,9 +331,11 @@ class Game {
   ///////////////////////////////////////////////////
   //// Utility methods
 
-  updateHand(hand: Card[]): void {
+  updateHand(hand: Card[], overrideIsReactionPhase?: boolean): void {
     const isReactionPhase =
-      this.gamedatas.gamestate.name === "ReactionPhase" && this.bga.players.isCurrentPlayerActive();
+      overrideIsReactionPhase !== undefined
+        ? overrideIsReactionPhase
+        : this.gamedatas.gamestate.name === "ReactionPhase" && this.bga.players.isCurrentPlayerActive();
     const isThreesome = isReactionPhase && this.gamedatas.gamestate.args?.is_threesome === true;
 
     this.handView.render({
