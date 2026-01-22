@@ -233,6 +233,16 @@ export class GameNotifications {
     } else {
       this.decDeckCount(3);
     }
+
+    // Update card count for the player who drew cards (0 -> 3)
+    const playerId = this.asInt(args.player_id);
+    if (playerId !== null) {
+      const gd = this.game.getGamedatas();
+      if (gd.players?.[playerId]) {
+        (gd.players[playerId] as any).handCount = 3;
+        this.game.updatePlayerCardCount(playerId);
+      }
+    }
   }
 
   async notif_discardAndDraw(args: any): Promise<void> {
@@ -242,6 +252,17 @@ export class GameNotifications {
       this.setDeckCount(deckCount);
     } else {
       this.decDeckCount(3);
+    }
+
+    // Update card count for the player who discarded and drew (1 -> 3, so net +2)
+    const playerId = this.asInt(args.player_id);
+    if (playerId !== null) {
+      const gd = this.game.getGamedatas();
+      if (gd.players?.[playerId]) {
+        // Player had 1 card, discarded it, drew 3, so hand count = 3
+        (gd.players[playerId] as any).handCount = 3;
+        this.game.updatePlayerCardCount(playerId);
+      }
     }
   }
 
@@ -487,15 +508,33 @@ export class GameNotifications {
 
   async notif_spiderPotato(args: any): Promise<void> {
     console.log("Spider potato:", args);
-    // Hands are exchanged, so we need to refresh card counts for both players
-    // The actual counts will be updated when handUpdated notifications are received
-    // But we can also refresh from game data if available
+    // Hands are exchanged, so we need to swap the hand counts for both players
     const player1Id = this.asInt(args.player1_id);
     const player2Id = this.asInt(args.player2_id);
-    if (player1Id !== null) {
+    
+    if (player1Id !== null && player2Id !== null) {
+      const gd = this.game.getGamedatas();
+      
+      // Get current hand counts
+      const player1Count = Number((gd.players?.[player1Id] as any)?.handCount ?? 0);
+      const player2Count = Number((gd.players?.[player2Id] as any)?.handCount ?? 0);
+      
+      // If server sent hand counts, use those; otherwise swap the existing counts
+      const player1NewCount = this.asInt(args.player1_handCount);
+      const player2NewCount = this.asInt(args.player2_handCount);
+      
+      if (player1NewCount !== null && player2NewCount !== null) {
+        // Server provided the new counts
+        (gd.players[player1Id] as any).handCount = player1NewCount;
+        (gd.players[player2Id] as any).handCount = player2NewCount;
+      } else {
+        // Swap the hand counts (Player 1 gets Player 2's count, and vice versa)
+        (gd.players[player1Id] as any).handCount = player2Count;
+        (gd.players[player2Id] as any).handCount = player1Count;
+      }
+      
+      // Update the display for both players
       this.game.updatePlayerCardCount(player1Id);
-    }
-    if (player2Id !== null) {
       this.game.updatePlayerCardCount(player2Id);
     }
   }

@@ -625,13 +625,19 @@ class ActionResolution extends GameState
             $this->game->cards->moveCard($cardId, "hand", $player2Id);
         }
 
+        // Get hand counts after exchange for the public notification
+        $hand1After = $this->game->cards->getPlayerHand($player1Id);
+        $hand2After = $this->game->cards->getPlayerHand($player2Id);
+        $hand1Count = count($hand1After);
+        $hand2Count = count($hand2After);
+
         // Private: refresh both players' hands immediately (avoid needing a page refresh).
         $this->game->notify->player($player1Id, "handUpdated", '', [
-            "hand" => array_values($this->game->cards->getPlayerHand($player1Id)),
+            "hand" => array_values($hand1After),
             "deckCount" => $this->game->cards->countCardInLocation("deck"),
         ]);
         $this->game->notify->player($player2Id, "handUpdated", '', [
-            "hand" => array_values($this->game->cards->getPlayerHand($player2Id)),
+            "hand" => array_values($hand2After),
             "deckCount" => $this->game->cards->countCardInLocation("deck"),
         ]);
 
@@ -640,6 +646,8 @@ class ActionResolution extends GameState
             "player1_name" => $this->game->getPlayerNameById($player1Id),
             "player2_id" => $player2Id,
             "player2_name" => $this->game->getPlayerNameById($player2Id),
+            "player1_handCount" => $hand1Count,
+            "player2_handCount" => $hand2Count,
             "i18n" => ["player1_name", "player2_name"],
         ]);
 
