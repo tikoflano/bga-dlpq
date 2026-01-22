@@ -1527,7 +1527,7 @@ class Game {
                 cardCounterElement.className = 'card-count-counter';
                 cardCounterElement.innerHTML = `
           <span class="card-count-icon">🃏</span>
-          <span class="card-count-number">${handCount}</span>
+          <span class="card-count-number">${handCount}/7</span>
         `;
                 countersContainer.appendChild(cardCounterElement);
             }
@@ -1535,7 +1535,7 @@ class Game {
                 // Update existing counter
                 const countSpan = cardCounterElement.querySelector('.card-count-number');
                 if (countSpan) {
-                    countSpan.textContent = `${handCount}`;
+                    countSpan.textContent = `${handCount}/7`;
                 }
             }
         }
@@ -1599,7 +1599,7 @@ class Game {
         if (cardCounterElement) {
             const countSpan = cardCounterElement.querySelector('.card-count-number');
             if (countSpan) {
-                countSpan.textContent = `${handCount}`;
+                countSpan.textContent = `${handCount}/7`;
             }
         }
         else {
@@ -1608,7 +1608,7 @@ class Game {
             cardCounterElement.className = 'card-count-counter';
             cardCounterElement.innerHTML = `
         <span class="card-count-icon">🃏</span>
-        <span class="card-count-number">${handCount}</span>
+        <span class="card-count-number">${handCount}/7</span>
       `;
             countersContainer.appendChild(cardCounterElement);
         }
