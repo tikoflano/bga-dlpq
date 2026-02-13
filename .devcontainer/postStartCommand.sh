@@ -2,4 +2,4 @@
 
 node .devcontainer/generate-sftp-config.js
 npm install
-npm run init
+npm run watch

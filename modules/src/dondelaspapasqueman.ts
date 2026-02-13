@@ -8,7 +8,7 @@
  * -----
  */
 
-/// <reference path="../../bga-framework.d.ts" />
-/// <reference path="./dondelaspapasqueman.d.ts" />
+/// <reference path="./types/bga-framework.d.ts" />
+/// <reference path="./types/dondelaspapasqueman.d.ts" />
 
 export { Game } from "./client/Game";
