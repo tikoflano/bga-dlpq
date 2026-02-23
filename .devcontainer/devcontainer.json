@@ -27,8 +27,6 @@
 	"postStartCommand": "bash .devcontainer/postStartCommand.sh",
 	"mounts": [
 		"type=bind,source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,readonly",
-		"type=bind,source=/tmp/.X11-unix,target=/tmp/.X11-unix",
-		"type=volume,source=dlpq-cursor-server,target=/home/vscode/.cursor-server",
-		"type=volume,source=dlpq-cursor-state,target=/home/vscode/.cursor"
+		"type=bind,source=/tmp/.X11-unix,target=/tmp/.X11-unix"
 	]
 }
