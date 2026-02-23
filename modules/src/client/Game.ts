@@ -19,6 +19,7 @@ class Game {
   private cardsManager!: BgaCardsTypes.CardManager<Card>;
   private handStock!: BgaCardsTypes.HandStock<Card>;
   private drawDeck!: BgaCardsTypes.Deck<Card>;
+  private discardPile!: BgaCardsTypes.DiscardDeck<Card>;
 
   // ReactionPhase double-send guard
   private reactionActionSent = false;
@@ -53,6 +54,7 @@ class Game {
       <div id="dlpq-table">
         <div id="dlpq-common-area">
           <div id="dlpq-deck"></div>
+          <div id="dlpq-discard"></div>
         </div>
         <div id="dlpq-hand-wrap" class="whiteblock">
           <b>${_("My hand")}</b>
@@ -65,6 +67,7 @@ class Game {
     this.initCardManager();
     this.initHandStock(gamedatas.hand || []);
     this.initDrawDeck(gamedatas.deckCount || 0);
+    this.initDiscardPile(gamedatas.discardPileCards || []);
 
     this.setupPlayerPanelCounters();
     this.setupNotifications();
@@ -157,6 +160,53 @@ class Game {
         autoUpdateCardNumber: false,
       },
     );
+  }
+
+  private initDiscardPile(cards: Card[]): void {
+    this.discardPile = new BgaCards.DiscardDeck(
+      this.cardsManager,
+      document.getElementById("dlpq-discard")!,
+      {
+        maxRotation: 15,
+        maxHorizontalShift: 8,
+        maxVerticalShift: 8,
+      },
+    );
+
+    // Cards arrive bottom-to-top; only the last one is the "top" card.
+    const topIndex = cards.length - 1;
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      const isTop = i === topIndex;
+      this.discardPile.addCard(card).then(() => {
+        this.applyDeterministicTransform(card);
+        if (!isTop) {
+          this.removeDiscardTooltip(card);
+        }
+      });
+    }
+  }
+
+  private applyDeterministicTransform(card: Card): void {
+    const el = this.cardsManager.getCardElement(card);
+    if (!el) return;
+    const id = Math.abs(Number(card.id));
+    const seed = (id * 2654435761) >>> 0;
+    const rot = ((seed % 1000) / 1000 - 0.5) * 2 * 15;
+    const dx = (((seed >>> 10) % 1000) / 1000 - 0.5) * 2 * 8;
+    const dy = (((seed >>> 20) % 1000) / 1000 - 0.5) * 2 * 8;
+    el.style.setProperty("--discard-deck-rotate", `${rot}deg`);
+    el.style.setProperty("--discard-deck-left", `${dx}px`);
+    el.style.setProperty("--discard-deck-top", `${dy}px`);
+  }
+
+  private removeDiscardTooltip(card: Card): void {
+    const el = this.cardsManager.getCardElement(card);
+    if (!el) return;
+    const front = el.querySelector(".front");
+    if (front?.id) {
+      this.bga.gameui.removeTooltip(front.id);
+    }
   }
 
   // ========================================================================
@@ -979,12 +1029,33 @@ class Game {
     }
   }
 
-  async notif_cardMovedToDiscard(_args: any): Promise<void> {
-    // No-op: discard pile not visually tracked in new UI
+  async notif_cardMovedToDiscard(args: any): Promise<void> {
+    const cardId = this.asInt(args.card_id);
+    const cardType = typeof args.card_type === "string" ? args.card_type : null;
+    const cardTypeArg = this.asInt(args.card_type_arg);
+    if (cardId === null || !cardType || cardTypeArg === null) return;
+
+    // Remove tooltip from the previous top card before adding a new one
+    const prevCards = this.discardPile.getCards();
+    if (prevCards.length > 0) {
+      this.removeDiscardTooltip(prevCards[prevCards.length - 1]);
+    }
+
+    const card: Card = { id: cardId, type: cardType, type_arg: cardTypeArg };
+    await this.discardPile.addCard(card);
+    this.applyDeterministicTransform(card);
   }
 
-  async notif_cardCancelled(_args: any): Promise<void> {
-    // No-op: discard pile not visually tracked
+  async notif_cardCancelled(args: any): Promise<void> {
+    const cardId = this.asInt(args.card_id);
+    if (cardId === null) return;
+
+    const card = this.discardPile
+      .getCards()
+      .find((c) => c.id === cardId);
+    if (card) {
+      this.discardPile.removeCard(card);
+    }
   }
 
   async notif_threesomeCancelled(_args: any): Promise<void> {
@@ -1044,6 +1115,23 @@ class Game {
         this.updatePlayerCardCount(playerId);
       }
     }
+
+    const top = args.discard_top_card;
+    if (top && typeof top === "object") {
+      const id = this.asInt(top.id);
+      const type = typeof top.type === "string" ? top.type : null;
+      const typeArg = this.asInt(top.type_arg);
+      if (id !== null && type && typeArg !== null) {
+        const prevCards = this.discardPile.getCards();
+        if (prevCards.length > 0) {
+          this.removeDiscardTooltip(prevCards[prevCards.length - 1]);
+        }
+
+        const card: Card = { id, type, type_arg: typeArg };
+        await this.discardPile.addCard(card);
+        this.applyDeterministicTransform(card);
+      }
+    }
   }
 
   async notif_turnEnded(_args: any): Promise<void> {
@@ -1086,8 +1174,12 @@ class Game {
     }
   }
 
-  async notif_deckReshuffled(_args: any): Promise<void> {
-    this.setDeckCount(this.gamedatas.deckCount || 0);
+  async notif_deckReshuffled(args: any): Promise<void> {
+    const dc = this.asInt(args.deckCount);
+    if (dc !== null) {
+      this.setDeckCount(dc);
+    }
+    this.discardPile.removeAll();
   }
 
   async notif_getOffThePony(args: any): Promise<void> {

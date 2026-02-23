@@ -313,16 +313,17 @@ class Game extends \Bga\GameFramework\Table {
         // Get discard count (visible to all)
         $result["discardCount"] = $this->cards->countCardInLocation("discard");
 
-        // Get top card of discard pile (visible to all).
-        // This allows the UI to reconstruct discard display after a page refresh.
-        $topDiscard = $this->getObjectFromDb(
+        // Get top N cards of discard pile (visible to all).
+        // Sent bottom-to-top so the client can add them in order.
+        $discardPileCards = $this->getObjectListFromDb(
             "SELECT card_id id, card_type type, card_type_arg type_arg
              FROM card
              WHERE card_location = 'discard'
              ORDER BY card_location_arg DESC, card_id DESC
-             LIMIT 1"
+             LIMIT 5"
         );
-        $result["discardTopCard"] = $topDiscard ?: null;
+        $result["discardPileCards"] = array_values(array_reverse($discardPileCards));
+        $result["discardTopCard"] = count($discardPileCards) > 0 ? $discardPileCards[0] : null;
 
         // Get golden potato pile count (visible to all)
         $result["goldenPotatoPileCount"] = $this->cards->countCardInLocation("golden_potato_pile");

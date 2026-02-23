@@ -140,6 +140,21 @@ declare namespace BgaCardsTypes {
     constructor(manager: CardManager<T>, element: HTMLElement);
   }
 
+  interface DiscardDeckSettings<T = any> {
+    maxRotation?: number;
+    maxHorizontalShift?: number;
+    maxVerticalShift?: number;
+    counter?: DeckCounter;
+    lastPlayedCardStyle?: any;
+    sort?: (a: any, b: any) => number;
+  }
+
+  class DiscardDeck<T = any> extends CardStock<T> {
+    constructor(manager: CardManager<T>, element: HTMLElement, settings?: DiscardDeckSettings<T>);
+    setLastPlayedCards(cards: T[], color?: string, cardClass?: string): void;
+    removeLastPlayedCardsClass(cardClass?: string): void;
+  }
+
   interface FlipCardSettings {
     updateData?: boolean;
     updateMain?: boolean;
