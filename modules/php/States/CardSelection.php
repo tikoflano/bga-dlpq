@@ -126,19 +126,19 @@ class CardSelection extends GameState {
         $nameIndex = (int) ($cardData["name_index"] ?? 0);
         $revealCards = ($nameIndex === 11); // Potato Dawan shows actual cards
 
-        // Create card data - either card backs (blind) or actual cards (revealed)
+        // Create card data with opaque tokens (client never sees position/hand index).
+        $tokenToPosition = [];
         $cardBacks = [];
         $revealedCards = [];
         foreach ($targetHand as $index => $card) {
-            $cardBacks[] = [
-                "position" => $index, // Position in hand
-            ];
-            
+            $token = bin2hex(random_bytes(8));
+            $tokenToPosition[$token] = $index;
+            $cardBacks[] = ["selectToken" => $token];
+
             if ($revealCards) {
-                // For Potato Dawan, reveal actual card information
                 $decoded = Game::decodeCardTypeArg((int) $card["type_arg"]);
                 $revealedCards[] = [
-                    "position" => $index,
+                    "selectToken" => $token,
                     "card_id" => (int) $card["id"],
                     "type" => $card["type"],
                     "type_arg" => (int) $card["type_arg"],
@@ -148,6 +148,8 @@ class CardSelection extends GameState {
                 ];
             }
         }
+
+        $this->game->globals->set("card_selection_tokens", serialize($tokenToPosition));
 
         // Shuffle so the attacking player cannot infer hand order.
         shuffle($cardBacks);
@@ -171,10 +173,18 @@ class CardSelection extends GameState {
     }
 
     /**
-     * Select a card from target's hand (by position)
+     * Select a card from target's hand (by opaque token)
      */
     #[PossibleAction]
-    public function actSelectCard(int $cardPosition, int $activePlayerId) {
+    public function actSelectCard(?string $selectToken, int $activePlayerId) {
+        $tokenData = $this->game->globals->get("card_selection_tokens");
+        $tokenToPosition = is_string($tokenData) && $tokenData !== "" ? @unserialize($tokenData) : null;
+        if (!is_array($tokenToPosition) || $selectToken === null || $selectToken === "" || !isset($tokenToPosition[$selectToken])) {
+            throw new UserException("Invalid or expired selection token");
+        }
+        $cardPosition = $tokenToPosition[$selectToken];
+        $this->game->globals->set("card_selection_tokens", "");
+
         // Get the action card data
         $actionCardData = $this->game->globals->get("action_card_data");
         $cardData = is_string($actionCardData) && $actionCardData !== "" ? @unserialize($actionCardData) : null;
@@ -225,15 +235,12 @@ class CardSelection extends GameState {
             throw new UserException("Invalid target player");
         }
 
-        // Get target's hand
-        // IMPORTANT: Reindex so $cardPosition maps to an actual element.
         $targetHand = array_values($this->game->cards->getPlayerHand($targetPlayerId));
 
         if ($cardPosition < 0 || $cardPosition >= count($targetHand)) {
             throw new UserException("Invalid card position");
         }
 
-        // Get the selected card
         $selectedCard = $targetHand[$cardPosition];
         $selectedCardId = $selectedCard["id"];
 
@@ -251,15 +258,17 @@ class CardSelection extends GameState {
      */
     function zombie(int $playerId) {
         $args = $this->getArgs();
-        $handSize = $args["handSize"];
+        $cardBacks = $args["cardBacks"] ?? [];
 
-        if ($handSize == 0) {
-            // No cards to select, go resolve (will no-op).
+        if (empty($cardBacks)) {
             return ActionResolution::class;
         }
 
-        // Select random position
-        $randomPosition = rand(0, $handSize - 1);
-        return $this->actSelectCard($randomPosition, $playerId);
+        $randomBack = $cardBacks[array_rand($cardBacks)];
+        $selectToken = $randomBack["selectToken"] ?? null;
+        if ($selectToken === null) {
+            return ActionResolution::class;
+        }
+        return $this->actSelectCard($selectToken, $playerId);
     }
 }

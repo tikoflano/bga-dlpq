@@ -882,7 +882,7 @@ class Game {
         if (revealedCards.length > 0) {
             for (const rc of revealedCards) {
                 const card = {
-                    id: rc.id ?? rc.position,
+                    id: rc.id ?? rc.card_id,
                     type: rc.type ?? rc.card_type,
                     type_arg: rc.type_arg ?? rc.card_type_arg,
                 };
@@ -890,7 +890,7 @@ class Game {
                 el.style.cursor = "pointer";
                 el.addEventListener("click", () => {
                     this.bga.actions.performAction("actSelectCard", {
-                        cardPosition: rc.position,
+                        selectToken: rc.selectToken,
                     });
                     this.hideCardSelectionUI();
                 });
@@ -913,7 +913,7 @@ class Game {
                 });
                 backDiv.addEventListener("click", () => {
                     this.bga.actions.performAction("actSelectCard", {
-                        cardPosition: cb.position,
+                        selectToken: cb.selectToken,
                     });
                     this.hideCardSelectionUI();
                 });
