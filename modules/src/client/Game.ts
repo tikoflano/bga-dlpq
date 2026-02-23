@@ -216,7 +216,7 @@ class Game {
   removeCardFromHand(cardId: number): void {
     const card = this.handStock
       .getCards()
-      .find((c) => c.id === cardId);
+      .find((c) => Number(c.id) === Number(cardId));
     if (card) {
       this.handStock.removeCard(card);
     }

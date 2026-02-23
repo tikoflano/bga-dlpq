@@ -242,8 +242,10 @@ class ActionResolution extends GameState
             if ($discardCount > 0) {
                 $this->game->cards->moveAllCardsInLocation("discard", "deck");
                 $this->game->cards->shuffle("deck");
-                $this->game->notify->all("deckReshuffled", clienttranslate("The discard pile is reshuffled into the deck"));
-                
+                $this->game->notify->all("deckReshuffled", clienttranslate("The discard pile is reshuffled into the deck"), [
+                    "deckCount" => $this->game->cards->countCardInLocation("deck"),
+                ]);
+
                 // Draw remaining cards
                 $remaining = 2 - count($drawnCards);
                 if ($remaining > 0) {
@@ -396,8 +398,10 @@ class ActionResolution extends GameState
             if ($discardCount > 0) {
                 $this->game->cards->moveAllCardsInLocation("discard", "deck");
                 $this->game->cards->shuffle("deck");
-                $this->game->notify->all("deckReshuffled", clienttranslate("The discard pile is reshuffled into the deck"));
-                
+                $this->game->notify->all("deckReshuffled", clienttranslate("The discard pile is reshuffled into the deck"), [
+                    "deckCount" => $this->game->cards->countCardInLocation("deck"),
+                ]);
+
                 // Draw remaining cards
                 $remaining = 2 - count($drawnCards);
                 if ($remaining > 0) {
@@ -469,8 +473,10 @@ class ActionResolution extends GameState
             if ($discardCount > 0) {
                 $this->game->cards->moveAllCardsInLocation("discard", "deck");
                 $this->game->cards->shuffle("deck");
-                $this->game->notify->all("deckReshuffled", clienttranslate("The discard pile is reshuffled into the deck"));
-                
+                $this->game->notify->all("deckReshuffled", clienttranslate("The discard pile is reshuffled into the deck"), [
+                    "deckCount" => $this->game->cards->countCardInLocation("deck"),
+                ]);
+
                 $drawnCard = $this->game->cards->pickCard("deck", $activePlayerId);
             }
         }
@@ -557,6 +563,17 @@ class ActionResolution extends GameState
                     "target_name" => $this->game->getPlayerNameById($targetPlayerId),
                     "card_id" => $selectedCardId,
                     "i18n" => ["target_name"],
+                ]);
+
+                // Refresh both players' hands and deck count (same pattern as other steal effects).
+                $deckCount = $this->game->cards->countCardInLocation("deck");
+                $this->game->notify->player($targetPlayerId, "handUpdated", '', [
+                    "hand" => array_values($this->game->cards->getPlayerHand($targetPlayerId)),
+                    "deckCount" => $deckCount,
+                ]);
+                $this->game->notify->player($activePlayerId, "handUpdated", '', [
+                    "hand" => array_values($this->game->cards->getPlayerHand($activePlayerId)),
+                    "deckCount" => $deckCount,
                 ]);
             }
         }

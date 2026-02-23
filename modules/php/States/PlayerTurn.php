@@ -456,8 +456,10 @@ class PlayerTurn extends GameState {
             if ($discardCount > 0) {
                 $this->game->cards->moveAllCardsInLocation('discard', 'deck');
                 $this->game->cards->shuffle('deck');
-                $this->game->notify->all("deckReshuffled", clienttranslate("The discard pile is reshuffled into the deck"));
-                
+                $this->game->notify->all("deckReshuffled", clienttranslate("The discard pile is reshuffled into the deck"), [
+                    "deckCount" => $this->game->cards->countCardInLocation("deck"),
+                ]);
+
                 $drawnCard = $this->game->cards->pickCard('deck', $activePlayerId);
             }
         }
