@@ -229,9 +229,18 @@ class Game {
   }
 
   replaceHand(cards: Card[]): void {
-    this.handStock.removeAll();
-    if (cards.length > 0) {
-      this.handStock.addCards(cards);
+    const current = this.handStock.getCards();
+    const newIds = new Set(cards.map((c) => c.id));
+    const currentIds = new Set(current.map((c) => c.id));
+
+    const toRemove = current.filter((c) => !newIds.has(c.id));
+    const toAdd = cards.filter((c) => !currentIds.has(c.id));
+
+    for (const card of toRemove) {
+      this.handStock.removeCard(card);
+    }
+    if (toAdd.length > 0) {
+      this.handStock.addCards(toAdd);
     }
     this.gamedatas.hand = cards;
   }
