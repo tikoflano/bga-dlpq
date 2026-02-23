@@ -17,7 +17,8 @@
 	"customizations": {
 		"vscode": {
 			"extensions": [
-				"NevinFoster.bga-extension-pack"
+				"NevinFoster.bga-extension-pack",
+				"mhutchie.git-graph"
 			]
 		}
 	},
