@@ -216,1484 +216,162 @@ function getValidPlayFromSelection(hand, selectedCardIds) {
     return null;
 }
 
-class DeckView {
-    setCount(count) {
-        const deckCountEl = document.querySelector("#deck-card .deck-count");
-        if (deckCountEl) {
-            deckCountEl.textContent = count.toString();
-        }
-    }
-}
-
-class DiscardView {
-    render(card) {
-        const discardCardEl = document.getElementById("discard-card");
-        if (!discardCardEl)
-            return;
-        if (card) {
-            const cardName = getCardName(card);
-            const cardValue = getCardValue(card);
-            discardCardEl.innerHTML = `
-                <div class="card-type">${card.type}</div>
-                <div class="card-name">${cardName}</div>
-                <div class="card-value">Value: ${cardValue}</div>
-            `;
-            discardCardEl.classList.remove("empty");
-            // Tooltip is handled by Game.ts so it can use BGA's addTooltipHtml/removeTooltip.
-            return;
-        }
-        discardCardEl.innerHTML = '<div class="card-placeholder">Discard Pile</div>';
-        discardCardEl.classList.add("empty");
-    }
-}
-
-class GoldenPotatoView {
-    /**
-     * Cards are double-sided: one side shows 1, the other shows 2.
-     * Display uses as many \"2\" cards as possible, then a \"1\" card if needed.
-     */
-    render(count) {
-        const cardsContainer = document.getElementById("golden-potato-cards");
-        if (!cardsContainer)
-            return;
-        cardsContainer.innerHTML = "";
-        if (count === 0)
-            return;
-        const cardsWith2 = Math.floor(count / 2);
-        const cardsWith1 = count % 2;
-        for (let i = 0; i < cardsWith2; i++) {
-            const cardDiv = document.createElement("div");
-            cardDiv.className = "golden-potato-card";
-            cardDiv.innerHTML = `
-                <div class="potato-value">2</div>
-                <div class="potato-label">Golden Potato</div>
-            `;
-            cardsContainer.appendChild(cardDiv);
-        }
-        if (cardsWith1 > 0) {
-            const cardDiv = document.createElement("div");
-            cardDiv.className = "golden-potato-card";
-            cardDiv.innerHTML = `
-                <div class="potato-value">1</div>
-                <div class="potato-label">Golden Potato</div>
-            `;
-            cardsContainer.appendChild(cardDiv);
-        }
-    }
-}
-
-class GoldenPotatoPileView {
-    setCount(count) {
-        const pileCountEl = document.querySelector("#golden-potato-pile-card .pile-count");
-        if (pileCountEl) {
-            pileCountEl.textContent = count.toString();
-        }
-    }
-}
-
-/**
- * Shared utility for rendering card elements.
- * Ensures consistent card appearance and behavior across the application.
- */
-class CardRenderer {
-    /**
-     * Attaches tooltip to a card element that was created with createCardElement.
-     * Call this after the element has been appended to the DOM.
-     */
-    static attachTooltipAfterAppend(cardElement) {
-        const tooltipCallback = cardElement._tooltipCallback;
-        const card = cardElement._cardForTooltip;
-        if (tooltipCallback && card) {
-            tooltipCallback(cardElement.id, getCardTooltipHtml(card));
-        }
-    }
-    /**
-     * Creates and returns a card DOM element with proper styling and event handlers.
-     * The element is not yet attached to the DOM - caller should append it.
-     */
-    static createCardElement(options) {
-        const { card, selected = false, isReactionPhase = false, isThreesome = false, onClick, attachTooltip, customId = "dlpq-card-hand", customClassName = "", } = options;
-        const cardDiv = document.createElement("div");
-        cardDiv.className = `card ${customClassName}`.trim();
-        cardDiv.id = `${customId}-${card.id}`;
-        cardDiv.dataset.cardId = card.id.toString();
-        const cardName = getCardName(card);
-        const cardValue = getCardValue(card);
-        const decoded = decodeCardTypeArg(card.type_arg || 0);
-        const interrupt = isInterruptCard(card);
-        cardDiv.innerHTML = `
-      ${decoded.isAlarm ? '<div class="alarm-dot" title="' + _("Alarm") + '"></div>' : ""}
-      <div class="card-type">${card.type}</div>
-      <div class="card-name">${cardName}</div>
-      <div class="card-value">Value: ${cardValue}</div>
-    `;
-        if (onClick) {
-            cardDiv.addEventListener("click", () => onClick(card.id));
-        }
-        if (selected) {
-            cardDiv.classList.add("selected");
-        }
-        // Highlight interrupt cards during reaction phase
-        // If it's a threesome, only highlight "I told you no dude" (name_index === 2)
-        if (isReactionPhase && interrupt) {
-            if (isThreesome) {
-                // Only highlight "I told you no dude" for threesomes
-                if (decoded.name_index === 2) {
-                    cardDiv.classList.add("interrupt-card");
-                }
-            }
-            else {
-                // Highlight all interrupt cards for regular cards
-                cardDiv.classList.add("interrupt-card");
-            }
-        }
-        // Note: Tooltip attachment should be done by caller after element is appended to DOM
-        // We store the tooltip callback and card for later attachment
-        if (attachTooltip) {
-            // Store reference for later tooltip attachment after element is in DOM
-            // Caller should call attachTooltipAfterAppend after appending to DOM
-            cardDiv._tooltipCallback = attachTooltip;
-            cardDiv._cardForTooltip = card;
-        }
-        return cardDiv;
-    }
-    /**
-     * Creates a card element from revealed card data (used in card selection).
-     * Converts the revealed card data structure to a Card-like object.
-     */
-    static createCardElementFromRevealed(revealedCard, options) {
-        // Convert revealed card data to Card format
-        const card = {
-            id: revealedCard.card_id,
-            type: revealedCard.type,
-            type_arg: revealedCard.type_arg,
-        };
-        return this.createCardElement({
-            card,
-            onClick: options.onClick ? () => options.onClick(revealedCard.position) : undefined,
-            attachTooltip: options.attachTooltip,
-            customId: "dlpq-card-selection",
-        });
-    }
-}
-
-class HandView {
-    render(args) {
-        const handArea = document.getElementById("hand-area");
-        if (!handArea)
-            return;
-        handArea.innerHTML = '<h3>Your Hand</h3><div id="hand-cards"></div>';
-        const handCards = document.getElementById("hand-cards");
-        if (!handCards)
-            return;
-        args.hand.forEach((card) => {
-            const cardDiv = CardRenderer.createCardElement({
-                card,
-                selected: args.selectedCardIds.includes(card.id),
-                isReactionPhase: args.isReactionPhase,
-                isThreesome: args.isThreesome,
-                onClick: args.onCardClick,
-                attachTooltip: args.attachTooltip,
-            });
-            handCards.appendChild(cardDiv);
-            // Attach tooltip after element is in DOM
-            if (args.attachTooltip) {
-                CardRenderer.attachTooltipAfterAppend(cardDiv);
-            }
-        });
-    }
-}
-
-class ActionResolutionState {
-    constructor(game) {
-        this.game = game;
-    }
-    onEnter(_args) {
-        if (this.game.getGamedatas().hand) {
-            this.game.updateHand(this.game.getGamedatas().hand);
-        }
-    }
-}
-
-class CardNameSelectionState {
-    constructor(game) {
-        this.game = game;
-        this.panelElement = null;
-        this.backdropElement = null;
-        this.gameAreaPositionModified = false;
-        this.handArea = null;
-        this.handAreaParent = null;
-        this.handAreaNextSibling = null;
-    }
-    onEnter(args) {
-        const a = args?.args || args;
-        this.show(a);
-    }
-    onLeave() {
-        this.hide();
-    }
-    show(args) {
-        if (!this.game.bga.gameui.isCurrentPlayerActive())
-            return;
-        this.hide();
-        const cardNames = args?.cardNames || {};
-        // Get the hand area to move it into the panel
-        const handArea = document.getElementById("hand-area");
-        if (!handArea)
-            return;
-        // Store hand area references for restoration
-        this.handArea = handArea;
-        this.handAreaParent = handArea.parentNode;
-        this.handAreaNextSibling = handArea.nextSibling;
-        // Get the game area to position the backdrop
-        const gameArea = this.game.bga.gameArea.getElement();
-        if (!gameArea)
-            return;
-        // Ensure game area has position relative for backdrop positioning
-        const gameAreaStyle = window.getComputedStyle(gameArea);
-        if (gameAreaStyle.position === "static") {
-            gameArea.style.position = "relative";
-            this.gameAreaPositionModified = true;
-        }
-        else {
-            this.gameAreaPositionModified = false;
-        }
-        // Create backdrop overlay - append to game area so it only covers the player area
-        const backdrop = document.createElement("div");
-        backdrop.id = "card-name-selection-backdrop";
-        backdrop.className = "card-name-selection-backdrop";
-        gameArea.appendChild(backdrop);
-        this.backdropElement = backdrop;
-        // Create the inline selection panel
-        const panel = document.createElement("div");
-        panel.id = "card-name-selection-panel";
-        panel.className = "card-name-selection-panel";
-        panel.innerHTML = `
-      <div class="card-name-selection-header">
-        <h3>${_("Name a card")}</h3>
-      </div>
-      <div class="card-name-selection-content">
-        <div class="card-name-selection-field">
-          <label for="card-type-select">${_("Card Type")}</label>
-          <select id="card-type-select" class="card-type-select">
-            <option value="">${_("Select card type...")}</option>
-          </select>
-        </div>
-        <div class="card-name-selection-field">
-          <label for="card-name-select">${_("Card Name")}</label>
-          <select id="card-name-select" class="card-name-select" disabled>
-            <option value="">${_("Select card name...")}</option>
-          </select>
-        </div>
-        <div class="card-name-selection-actions">
-          <button id="confirm-card-name" class="bgabutton" disabled>${_("Confirm")}</button>
-        </div>
-      </div>
-      <div class="card-name-selection-hand-container"></div>
-    `;
-        // Insert the panel where the hand area was
-        if (this.handAreaParent) {
-            this.handAreaParent.insertBefore(panel, this.handAreaNextSibling);
-        }
-        // Move the hand area into the panel
-        const handContainer = panel.querySelector(".card-name-selection-hand-container");
-        if (handContainer) {
-            handContainer.appendChild(handArea);
-        }
-        this.panelElement = panel;
-        // Setup event handlers
-        setTimeout(() => {
-            const cardTypeSelect = document.getElementById("card-type-select");
-            const cardNameSelect = document.getElementById("card-name-select");
-            const confirmBtn = document.getElementById("confirm-card-name");
-            if (!cardTypeSelect || !cardNameSelect || !confirmBtn)
-                return;
-            // Populate card type dropdown
-            if (cardNames && Object.keys(cardNames).length > 0) {
-                Object.keys(cardNames).forEach((cardType) => {
-                    const option = document.createElement("option");
-                    option.value = cardType;
-                    option.textContent = cardType.charAt(0).toUpperCase() + cardType.slice(1);
-                    cardTypeSelect.appendChild(option);
-                });
-            }
-            const updateConfirmButton = () => {
-                const hasSelection = cardTypeSelect.value && cardNameSelect.value;
-                confirmBtn.disabled = !hasSelection;
-                if (hasSelection) {
-                    confirmBtn.classList.add("bgabutton_blue");
-                    confirmBtn.style.cursor = "pointer";
-                }
-                else {
-                    confirmBtn.classList.remove("bgabutton_blue");
-                    confirmBtn.style.cursor = "not-allowed";
-                }
-            };
-            cardTypeSelect.addEventListener("change", () => {
-                const selectedType = cardTypeSelect.value;
-                cardNameSelect.innerHTML = '<option value="">' + _("Select card name...") + "</option>";
-                cardNameSelect.disabled = !selectedType;
-                if (selectedType && cardNames[selectedType]) {
-                    Object.keys(cardNames[selectedType]).forEach((nameIndex) => {
-                        const option = document.createElement("option");
-                        option.value = nameIndex;
-                        option.textContent = cardNames[selectedType][nameIndex];
-                        cardNameSelect.appendChild(option);
-                    });
-                }
-                updateConfirmButton();
-            });
-            cardNameSelect.addEventListener("change", () => {
-                updateConfirmButton();
-            });
-            confirmBtn.addEventListener("click", () => {
-                const cardType = cardTypeSelect.value;
-                const nameIndex = parseInt(cardNameSelect.value);
-                if (cardType && nameIndex) {
-                    this.game.bga.actions.performAction("actSelectCardName", {
-                        cardType: cardType,
-                        nameIndex: nameIndex,
-                    });
-                    this.hide();
-                }
-            });
-        }, 100);
-    }
-    hide() {
-        // Restore hand area to its original position before removing panel
-        if (this.handArea && this.handAreaParent) {
-            if (this.handAreaNextSibling) {
-                this.handAreaParent.insertBefore(this.handArea, this.handAreaNextSibling);
-            }
-            else {
-                this.handAreaParent.appendChild(this.handArea);
-            }
-        }
-        if (this.panelElement) {
-            this.panelElement.remove();
-            this.panelElement = null;
-        }
-        if (this.backdropElement) {
-            const gameArea = this.game.bga.gameArea.getElement();
-            this.backdropElement.remove();
-            this.backdropElement = null;
-            // Reset game area position if we modified it
-            if (this.gameAreaPositionModified && gameArea) {
-                gameArea.style.position = "";
-                this.gameAreaPositionModified = false;
-            }
-        }
-        // Clear references
-        this.handArea = null;
-        this.handAreaParent = null;
-        this.handAreaNextSibling = null;
-    }
-}
-
-class CardSelectionState {
-    constructor(game) {
-        this.game = game;
-        this.dialog = null;
-    }
-    /**
-     * Generate HTML for a player color indicator box
-     */
-    getPlayerColorBox(color) {
-        if (!color)
-            return "";
-        // Ensure color is in hex format (add # if missing)
-        const hexColor = color.startsWith("#") ? color : `#${color}`;
-        return `<span class="player-color-indicator" style="background-color: ${hexColor};"></span>`;
-    }
-    onEnter(args) {
-        const a = args?.args || args;
-        this.show(a);
-    }
-    onLeave() {
-        this.hide();
-    }
-    show(args) {
-        if (!this.game.bga.gameui.isCurrentPlayerActive())
-            return;
-        this.hide();
-        this.dialog = new ebg.popindialog();
-        this.dialog.create("card-selection-dialog");
-        const targetName = args.targetPlayerName || "";
-        this.dialog.setTitle(_("Select a card from ${target_name}'s hand").replace("${target_name}", targetName));
-        this.dialog.setMaxWidth(600);
-        this.dialog.hideCloseIcon();
-        // Check if cards are revealed (Potato Dawan) or just card backs (blind selection)
-        const revealedCards = args.revealedCards && Array.isArray(args.revealedCards) ? args.revealedCards : null;
-        const cardBacks = args.cardBacks && Array.isArray(args.cardBacks) ? args.cardBacks : [];
-        // Create container div HTML first - use flexbox to display cards in a row
-        const cardsHtml = '<div id="card-selection-cards" style="display: flex; flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px; padding: 20px;"></div>';
-        this.dialog.setContent(cardsHtml);
-        this.dialog.show();
-        // Helper function to center dialog relative to game area
-        const centerDialog = () => {
-            const dialogElement = document.getElementById("card-selection-dialog");
-            const gameArea = this.game.bga.gameArea.getElement();
-            if (!dialogElement) {
-                console.warn("Dialog element not found for centering");
-                return;
-            }
-            if (!gameArea) {
-                console.warn("Game area not found for centering");
-                return;
-            }
-            const gameAreaRect = gameArea.getBoundingClientRect();
-            const dialogRect = dialogElement.getBoundingClientRect();
-            console.log("Centering dialog - gameArea:", gameAreaRect, "dialog:", dialogRect);
-            // Only position if we have valid dimensions
-            if (dialogRect.width > 0 && dialogRect.height > 0 && gameAreaRect.width > 0) {
-                // Calculate center position relative to game area
-                const centerX = gameAreaRect.left + gameAreaRect.width / 2;
-                const centerY = gameAreaRect.top + gameAreaRect.height / 2;
-                // Position dialog at center, accounting for dialog's own dimensions
-                const left = Math.max(0, centerX - dialogRect.width / 2);
-                const top = Math.max(0, centerY - dialogRect.height / 2);
-                console.log("Positioning dialog at:", left, top);
-                // Apply positioning (use fixed positioning relative to viewport, but calculated from game area)
-                dialogElement.style.position = "fixed";
-                dialogElement.style.left = `${left}px`;
-                dialogElement.style.top = `${top}px`;
-                dialogElement.style.margin = "0";
-                dialogElement.style.transform = "none";
-            }
-            else {
-                console.warn("Dialog or game area has invalid dimensions, skipping positioning");
-            }
-        };
-        // Now that dialog is shown, get the container and append cards
-        setTimeout(() => {
-            const cardsContainer = document.getElementById("card-selection-cards");
-            if (!cardsContainer) {
-                console.error("Card selection container not found");
-                // Try to find the dialog to see if it exists
-                const dialogElement = document.getElementById("card-selection-dialog");
-                console.error("Dialog element exists:", !!dialogElement);
-                if (dialogElement) {
-                    console.error("Dialog HTML:", dialogElement.innerHTML.substring(0, 200));
-                }
-                return;
-            }
-            // Check what we have
-            const hasRevealedCards = revealedCards && revealedCards.length > 0;
-            const hasCardBacks = cardBacks && cardBacks.length > 0;
-            console.log("Card selection args:", {
-                revealedCards: revealedCards,
-                cardBacks: cardBacks,
-                hasRevealedCards,
-                hasCardBacks,
-                targetName: args.targetPlayerName
-            });
-            if (hasRevealedCards) {
-                // Show actual cards with their names and values (Potato Dawan)
-                // Use CardRenderer to ensure they look exactly like hand cards
-                console.log("Rendering revealed cards, count:", revealedCards.length);
-                revealedCards.forEach((revealedCard) => {
-                    const cardDiv = CardRenderer.createCardElementFromRevealed(revealedCard, {
-                        onClick: (position) => {
-                            this.game.bga.actions.performAction("actSelectCard", {
-                                cardPosition: position,
-                            });
-                            this.hide();
-                        },
-                        attachTooltip: (nodeId, html) => {
-                            // Safe on rerenders: remove then re-add.
-                            this.game.bga.gameui.removeTooltip(nodeId);
-                            this.game.bga.gameui.addTooltipHtml(nodeId, html);
-                        },
-                    });
-                    cardsContainer.appendChild(cardDiv);
-                    console.log("Appended revealed card:", revealedCard);
-                    // Attach tooltip after element is in DOM
-                    CardRenderer.attachTooltipAfterAppend(cardDiv);
-                });
-            }
-            else if (hasCardBacks) {
-                // Show card backs only (blind selection)
-                console.log("Rendering card backs, count:", cardBacks.length);
-                cardBacks.forEach((cardBack) => {
-                    const backDiv = document.createElement("div");
-                    backDiv.className = "card-back";
-                    backDiv.dataset.position = cardBack.position.toString();
-                    // Apply styles directly since CSS might not be matching
-                    backDiv.style.width = "60px";
-                    backDiv.style.height = "90px";
-                    backDiv.style.backgroundColor = "#8b0000";
-                    backDiv.style.border = "2px solid #000";
-                    backDiv.style.borderRadius = "5px";
-                    backDiv.style.cursor = "pointer";
-                    backDiv.style.flexShrink = "0";
-                    backDiv.style.transition = "all 0.2s ease";
-                    // Add hover effect via event listeners
-                    backDiv.addEventListener("mouseenter", () => {
-                        backDiv.style.transform = "translateY(-5px)";
-                        backDiv.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.3)";
-                        backDiv.style.borderColor = "#ff6b6b";
-                    });
-                    backDiv.addEventListener("mouseleave", () => {
-                        backDiv.style.transform = "";
-                        backDiv.style.boxShadow = "";
-                        backDiv.style.borderColor = "#000";
-                    });
-                    backDiv.addEventListener("click", () => {
-                        const position = parseInt(backDiv.dataset.position || "0");
-                        this.game.bga.actions.performAction("actSelectCard", {
-                            cardPosition: position,
-                        });
-                        this.hide();
-                    });
-                    cardsContainer.appendChild(backDiv);
-                    console.log("Appended card back at position:", cardBack.position, "element:", backDiv);
-                });
-                console.log("Container after appending card backs:", cardsContainer.innerHTML.substring(0, 300));
-            }
-            else {
-                console.warn("No cards to display in card selection - args:", args);
-            }
-            // Center the dialog after cards are added (dialog size may have changed)
-            // Use a small delay to ensure DOM is updated
-            setTimeout(() => {
-                centerDialog();
-            }, 100);
-        }, 150);
-    }
-    hide() {
-        if (this.dialog) {
-            this.dialog.hide();
-            this.dialog.destroy();
-            this.dialog = null;
-        }
-    }
-}
-
-class DiscardPhaseState {
-    constructor(game) {
-        this.game = game;
-    }
-    onEnter(args) {
-        // Discard-to-7 UI should be handled via:
-        // - clicking cards in hand to select
-        // - a status-bar button that submits the discard when the selection is valid
-        // So we explicitly remove any legacy UI block (older builds) and just rely on the hand rendering.
-        this.hide();
-        this.game.clearSelectedCards();
-        this.game.updateHand(this.game.getGamedatas().hand || []);
-        this.onUpdateActionButtons(args);
-    }
-    onUpdateActionButtons(args) {
-        if (!this.game.bga.gameui.isCurrentPlayerActive())
-            return;
-        // BGA sometimes wraps state args as { args: ... }.
-        const a = args?.args || args || {};
-        this.game.bga.statusBar.removeActionButtons();
-        const handSize = (this.game.getGamedatas().hand || []).length;
-        const selectedCount = this.game.getSelectedCards().length;
-        const cardsToDiscard = Math.max(0, handSize - 7);
-        // Always show the button when cards need to be discarded, with appropriate state and message
-        if (cardsToDiscard > 0) {
-            let label;
-            let disabled = false;
-            if (selectedCount < cardsToDiscard) {
-                const remaining = cardsToDiscard - selectedCount;
-                const cardWord = remaining === 1 ? "card" : "cards";
-                label = _("Select ${count} more ${cardWord}").replace("${count}", String(remaining)).replace("${cardWord}", cardWord);
-                disabled = true;
-            }
-            else if (selectedCount > cardsToDiscard) {
-                const excess = selectedCount - cardsToDiscard;
-                const cardWord = excess === 1 ? "card" : "cards";
-                label = _("Unselect ${count} more ${cardWord}").replace("${count}", String(excess)).replace("${cardWord}", cardWord);
-                disabled = true;
-            }
-            else {
-                const cardWord = selectedCount === 1 ? "card" : "cards";
-                label = _("Discard ${count} ${cardWord}").replace("${count}", String(selectedCount)).replace("${cardWord}", cardWord);
-                disabled = false;
-            }
-            this.game.bga.statusBar.addActionButton(label, () => {
-                const cardIds = this.game.getSelectedCards().slice();
-                // Defensive: only submit if still valid at click-time.
-                if ((this.game.getGamedatas().hand || []).length - cardIds.length !== 7)
-                    return;
-                this.game.bga.actions.performAction("actDiscardCards", { card_ids: cardIds });
-                this.game.clearSelectedCards();
-                this.game.updateHand(this.game.getGamedatas().hand || []);
-                this.game.bga.statusBar.removeActionButtons();
-            }, { color: "primary", disabled });
-        }
-        else if (a) {
-            // No button: status bar text is enough, per UX requirement.
-        }
-    }
-    onLeave() {
-        this.hide();
-        this.game.clearSelectedCards();
-        this.game.updateHand(this.game.getGamedatas().hand || []);
-    }
-    hide() {
-        const discardDiv = document.getElementById("discard-phase-ui");
-        if (discardDiv)
-            discardDiv.remove();
-    }
-}
-
-class PlayerTurnState {
-    constructor(game) {
-        this.game = game;
-    }
-    onEnter(args) {
-        this.game.clearSelectedCards();
-        if (this.game.getGamedatas().hand) {
-            this.game.updateHand(this.game.getGamedatas().hand || []);
-        }
-        if (!this.game.bga.gameui.isCurrentPlayerActive())
-            return;
-        this.game.bga.statusBar.removeActionButtons();
-        const canDiscardAndDraw = !!(args?.canDiscardAndDraw ?? args?.args?.canDiscardAndDraw);
-        if (canDiscardAndDraw) {
-            this.game.bga.statusBar.addActionButton(_("Discard and Draw 3"), () => {
-                this.game.bga.actions.performAction("actDiscardAndDraw", {});
-            }, { color: "primary" });
-        }
-        // Add "End Turn" button last so it stays far right
-        this.game.bga.statusBar.addActionButton(_("End Turn"), () => {
-            this.game.bga.actions.performAction("actEndTurn", {});
-        }, { color: "alert", classes: ["bgabutton", "bgabutton_red"] });
-    }
-    onUpdateActionButtons(args) {
-        if (!this.game.bga.gameui.isCurrentPlayerActive())
-            return;
-        this.game.bga.statusBar.removeActionButtons();
-        const canDiscardAndDraw = !!(args?.canDiscardAndDraw ?? args?.args?.canDiscardAndDraw);
-        if (canDiscardAndDraw) {
-            this.game.bga.statusBar.addActionButton(_("Discard and Draw 3"), () => {
-                this.game.bga.actions.performAction("actDiscardAndDraw", {});
-            }, { color: "primary" });
-        }
-        const validPlay = getValidPlayFromSelection(this.game.getGamedatas().hand, this.game.getSelectedCards());
-        if (validPlay) {
-            this.game.bga.statusBar.addActionButton(validPlay.label, () => {
-                if (validPlay.kind === "single") {
-                    this.game.bga.actions.performAction("actPlayCard", { card_id: validPlay.cardId });
-                }
-                else {
-                    this.game.bga.actions.performAction("actPlayThreesome", { card_ids: validPlay.cardIds });
-                }
-                this.game.clearSelectedCards();
-                this.game.updateHand(this.game.getGamedatas().hand || []);
-                this.game.onUpdateActionButtons("PlayerTurn", this.game.getGamedatas().gamestate.args || null);
-            }, { color: "primary" });
-        }
-        // Add "End Turn" button last so it stays far right
-        this.game.bga.statusBar.addActionButton(_("End Turn"), () => {
-            this.game.bga.actions.performAction("actEndTurn", {});
-        }, { color: "alert", classes: ["bgabutton", "bgabutton_red"] });
-    }
-}
-
-class ReactionPhaseState {
-    constructor(game) {
-        this.game = game;
-        this.countdownIntervalId = null;
-        this.autoSkipTimeoutId = null;
-        this.skipButton = null;
-        this.reactionTimeSeconds = 7; // Default, will be updated from args
-    }
-    onEnter(args) {
-        // Get reaction time from args if available
-        if (args && typeof args.reaction_time_seconds === "number") {
-            this.reactionTimeSeconds = args.reaction_time_seconds;
-        }
-        this.game.resetReactionActionSent();
-        this.maybeStartTimer();
-    }
-    onLeave() {
-        this.stopTimer();
-        this.game.resetReactionActionSent();
-        // Explicitly remove interrupt highlighting by passing false for isReactionPhase
-        this.game.updateHand(this.game.getGamedatas().hand || [], false);
-    }
-    onUpdateActionButtons(args) {
-        // MULTIPLE_ACTIVE_PLAYER: use players.isCurrentPlayerActive()
-        if (!this.game.bga.players.isCurrentPlayerActive()) {
-            this.stopTimer();
-            return;
-        }
-        // Update reaction time from args if available
-        if (args && typeof args.reaction_time_seconds === "number") {
-            this.reactionTimeSeconds = args.reaction_time_seconds;
-        }
-        this.game.bga.statusBar.removeActionButtons();
-        // Refresh hand to highlight interrupt cards
-        if (this.game.getGamedatas().hand) {
-            this.game.updateHand(this.game.getGamedatas().hand);
-        }
-        // Add "Skip" button for all active players
-        this.skipButton = this.game.bga.statusBar.addActionButton(_("Skip"), () => {
-            this.sendSkip();
-        }, { color: "primary" });
-        this.maybeStartTimer();
-    }
-    maybeStartTimer() {
-        // Defensive: never run the ReactionPhase timer if we've already left the state.
-        if (this.game.getGamedatas().gamestate.name !== "ReactionPhase") {
-            this.stopTimer();
-            return;
-        }
-        if (!this.game.bga.players.isCurrentPlayerActive()) {
-            this.stopTimer();
-            return;
-        }
-        if (this.game.didSendReactionAction()) {
-            this.stopTimer();
-            return;
-        }
-        if (this.countdownIntervalId !== null || this.autoSkipTimeoutId !== null)
-            return;
-        // Use the variable reaction time instead of hardcoded 5
-        const reactionSeconds = this.reactionTimeSeconds;
-        const deadlineMs = Date.now() + reactionSeconds * 1000;
-        let lastShownSeconds = reactionSeconds;
-        // Set initial button text to show countdown
-        if (this.skipButton) {
-            this.skipButton.textContent = _("Skip") + ` (${reactionSeconds})`;
-        }
-        this.autoSkipTimeoutId = window.setTimeout(() => {
-            if (this.game.getGamedatas().gamestate.name !== "ReactionPhase")
-                return;
-            if (!this.game.bga.players.isCurrentPlayerActive())
-                return;
-            if (this.game.didSendReactionAction())
-                return;
-            this.sendSkip();
-        }, reactionSeconds * 1000);
-        this.countdownIntervalId = window.setInterval(() => {
-            if (this.game.getGamedatas().gamestate.name !== "ReactionPhase" ||
-                !this.game.bga.players.isCurrentPlayerActive() ||
-                this.game.didSendReactionAction()) {
-                this.stopTimer();
-                return;
-            }
-            const msLeft = deadlineMs - Date.now();
-            const secondsLeft = Math.max(0, Math.ceil(msLeft / 1000));
-            if (secondsLeft !== lastShownSeconds) {
-                lastShownSeconds = secondsLeft;
-                // Update skip button text with countdown
-                if (this.skipButton) {
-                    if (secondsLeft > 0) {
-                        this.skipButton.textContent = _("Skip") + ` (${secondsLeft})`;
-                    }
-                    else {
-                        this.skipButton.textContent = _("Skip");
-                    }
-                }
-            }
-        }, 100);
-    }
-    sendSkip() {
-        if (this.game.didSendReactionAction())
-            return;
-        if (this.game.getGamedatas().gamestate.name !== "ReactionPhase") {
-            this.stopTimer();
-            return;
-        }
-        this.game.markReactionActionSent();
-        this.game.bga.actions.performAction("actSkipReaction", {});
-        this.stopTimer();
-    }
-    stopTimer() {
-        if (this.countdownIntervalId !== null) {
-            clearInterval(this.countdownIntervalId);
-            this.countdownIntervalId = null;
-        }
-        if (this.autoSkipTimeoutId !== null) {
-            clearTimeout(this.autoSkipTimeoutId);
-            this.autoSkipTimeoutId = null;
-        }
-        this.skipButton = null;
-    }
-}
-
-class TargetSelectionState {
-    constructor(game) {
-        this.game = game;
-        this.selectedTargets = [];
-    }
-    /**
-     * Generate HTML for a player color indicator box
-     */
-    getPlayerColorBox(color) {
-        if (!color)
-            return "";
-        // Ensure color is in hex format (add # if missing)
-        const hexColor = color.startsWith("#") ? color : `#${color}`;
-        return `<span class="player-color-indicator" style="background-color: ${hexColor};"></span>`;
-    }
-    onLeave() {
-        this.selectedTargets = [];
-        this.hideTargetSelection();
-    }
-    onUpdateActionButtons(args) {
-        if (!this.game.bga.gameui.isCurrentPlayerActive())
-            return;
-        if (!args)
-            return;
-        const a = args.args || args;
-        this.updateButtons({
-            selectablePlayers: a.selectablePlayers || [],
-            targetCount: a.targetCount || 1,
-            requiresMultipleTargets: !!a.requiresMultipleTargets,
-        });
-    }
-    updateButtons(args) {
-        this.game.bga.statusBar.removeActionButtons();
-        const { selectablePlayers, targetCount, requiresMultipleTargets } = args;
-        selectablePlayers.forEach((player) => {
-            const isSelected = this.selectedTargets.includes(player.id);
-            const colorBox = this.getPlayerColorBox(player.color || "");
-            const playerNameWithColor = (player.name || "") + " " + colorBox;
-            const buttonText = isSelected
-                ? _("Deselect ${player_name}").replace("${player_name}", playerNameWithColor)
-                : _("Select ${player_name}").replace("${player_name}", playerNameWithColor);
-            const button = this.game.bga.statusBar.addActionButton(buttonText, () => {
-                const index = this.selectedTargets.indexOf(player.id);
-                if (index > -1) {
-                    this.selectedTargets.splice(index, 1);
-                }
-                else {
-                    if (this.selectedTargets.length < targetCount) {
-                        this.selectedTargets.push(player.id);
-                    }
-                }
-                // For single target, auto-submit when selected
-                if (this.selectedTargets.length === targetCount && !requiresMultipleTargets) {
-                    this.game.bga.actions.performAction("actSelectTargets", {
-                        targetPlayerIds: this.selectedTargets,
-                    });
-                    this.selectedTargets = [];
-                }
-                else {
-                    // For multiple targets, refresh buttons to show updated state
-                    this.updateButtons(args);
-                }
-            }, { color: isSelected ? "secondary" : "primary" });
-            // Set innerHTML to support the color box HTML
-            if (button && colorBox) {
-                button.innerHTML = buttonText;
-            }
-        });
-        if (requiresMultipleTargets && this.selectedTargets.length === targetCount) {
-            this.game.bga.statusBar.addActionButton(_("Confirm Selection"), () => {
-                this.game.bga.actions.performAction("actSelectTargets", {
-                    targetPlayerIds: this.selectedTargets,
-                });
-                this.selectedTargets = [];
-            }, { color: "primary" });
-        }
-    }
-    hideTargetSelection() {
-        const targetDiv = document.getElementById("target-selection-ui");
-        if (targetDiv)
-            targetDiv.remove();
-    }
-}
-
-function createStateHandlers(game) {
-    return {
-        PlayerTurn: new PlayerTurnState(game),
-        ReactionPhase: new ReactionPhaseState(game),
-        ActionResolution: new ActionResolutionState(game),
-        TargetSelection: new TargetSelectionState(game),
-        DiscardPhase: new DiscardPhaseState(game),
-        CardSelection: new CardSelectionState(game),
-        CardNameSelection: new CardNameSelectionState(game),
-    };
-}
-
-class GameNotifications {
-    constructor(game) {
-        this.game = game;
-    }
-    setup() {
-        console.log("notifications subscriptions setup");
-        this.game.bga.notifications.setupPromiseNotifications({
-            handlers: [this],
-            // logger: console.log,
-        });
-    }
-    asInt(value) {
-        if (typeof value === "number" && Number.isFinite(value))
-            return value;
-        if (typeof value === "string" && value.trim() !== "") {
-            const n = Number(value);
-            return Number.isFinite(n) ? n : null;
-        }
-        return null;
-    }
-    setDeckCount(count) {
-        const gd = this.game.getGamedatas();
-        gd.deckCount = Math.max(0, count);
-        this.game.updateDeckDisplay(gd.deckCount);
-    }
-    decDeckCount(delta) {
-        const gd = this.game.getGamedatas();
-        const current = typeof gd.deckCount === "number" ? gd.deckCount : 0;
-        this.setDeckCount(current - delta);
-    }
-    applyGoldenPotatoesDelta(playerId, delta) {
-        const gd = this.game.getGamedatas();
-        const p = gd.players?.[playerId];
-        if (!p)
-            return;
-        const current = Number(p.golden_potatoes ?? p.score ?? 0);
-        const next = Math.max(0, current + delta);
-        p.golden_potatoes = next;
-        // Keep score in sync too, since server does that.
-        p.score = next;
-        if (playerId === this.game.bga.gameui.player_id) {
-            this.game.updateGoldenPotatoCards(next);
-        }
-        // Update player panel counter
-        this.game.updatePlayerPanelCounter(playerId);
-    }
-    async notif_handUpdated(args) {
-        const gd = this.game.getGamedatas();
-        if (Array.isArray(args.hand)) {
-            gd.hand = args.hand;
-            this.game.updateHand(gd.hand);
-            // Update current player's card count
-            const currentPlayerId = this.game.bga.gameui.player_id;
-            if (currentPlayerId && gd.players?.[currentPlayerId]) {
-                gd.players[currentPlayerId].handCount = args.hand.length;
-                this.game.updatePlayerCardCount(currentPlayerId);
-            }
-        }
-        const deckCount = this.asInt(args.deckCount);
-        if (deckCount !== null) {
-            this.setDeckCount(deckCount);
-        }
-    }
-    async notif_cardPlayed(args) {
-        console.log("Card played:", args);
-        this.game.updateDeckDisplay(this.game.getGamedatas().deckCount || 0);
-        const playedCardId = this.asInt(args.card_id);
-        const playedCardTypeArg = this.asInt(args.card_type_arg);
-        const playedCardType = typeof args.card_type === "string" ? args.card_type : null;
-        // Cards are moved to discard immediately when played, so we can optimistically show them
-        // The cardMovedToDiscard notification will confirm it, but this provides immediate feedback
-        if (playedCardId !== null && playedCardTypeArg !== null && playedCardType) {
-            this.game.optimisticallySetDiscard({
-                id: playedCardId,
-                type: playedCardType,
-                type_arg: playedCardTypeArg,
-            });
-        }
-        const playerId = this.asInt(args.player_id);
-        if (playedCardId !== null && playerId === this.game.bga.gameui.player_id) {
-            this.game.removeCardFromMyHand(playedCardId);
-        }
-        // Update card count for the player who played the card
-        // NOTE: For the active player, handUpdated already updated the count correctly,
-        // so we only update for other players' views
-        if (playerId !== null && playerId !== this.game.bga.gameui.player_id) {
-            const gd = this.game.getGamedatas();
-            if (gd.players?.[playerId]) {
-                const currentCount = Number(gd.players[playerId].handCount ?? 0);
-                gd.players[playerId].handCount = Math.max(0, currentCount - 1);
-                this.game.updatePlayerCardCount(playerId);
-            }
-        }
-    }
-    async notif_threesomePlayed(args) {
-        console.log("Threesome played:", args);
-        this.game.updateDeckDisplay(Math.max(0, this.game.getGamedatas().deckCount || 0));
-        const playerId = this.asInt(args.player_id);
-        const delta = this.asInt(args.golden_potatoes) ?? 0;
-        if (playerId !== null && delta !== 0) {
-            this.applyGoldenPotatoesDelta(playerId, delta);
-        }
-    }
-    async notif_threesomeScored(args) {
-        console.log("Threesome scored:", args);
-        this.game.updateDeckDisplay(Math.max(0, this.game.getGamedatas().deckCount || 0));
-        const playerId = this.asInt(args.player_id);
-        const delta = this.asInt(args.golden_potatoes) ?? 0;
-        if (playerId !== null && delta !== 0) {
-            this.applyGoldenPotatoesDelta(playerId, delta);
-        }
-    }
-    async notif_cardMovedToDiscard(args) {
-        const cardId = this.asInt(args.card_id);
-        const cardTypeArg = this.asInt(args.card_type_arg);
-        const cardType = typeof args.card_type === "string" ? args.card_type : null;
-        if (cardId === null || cardTypeArg === null || !cardType)
-            return;
-        this.game.confirmDiscardMovedToDiscard({ id: cardId, type: cardType, type_arg: cardTypeArg });
-    }
-    async notif_cardCancelled(args) {
-        console.log("Card cancelled:", args);
-        const cancelledCardId = this.asInt(args.card_id);
-        if (cancelledCardId !== null) {
-            this.game.cancelPendingDiscard(cancelledCardId);
-        }
-    }
-    async notif_threesomeCancelled(args) {
-        console.log("Threesome cancelled:", args);
-        // No golden potatoes to revert: they are awarded only after the reaction phase completes.
-    }
-    async notif_cardDrawn(args) {
-        console.log("Card drawn:", args);
-        this.decDeckCount(1);
-        const gd = this.game.getGamedatas();
-        const playerId = this.asInt(args.player_id);
-        if (playerId === this.game.bga.gameui.player_id && gd.hand) {
-            if (args.card_type && args.card_type_arg !== undefined) {
-                const newCard = {
-                    id: args.card_id,
-                    type: args.card_type,
-                    type_arg: args.card_type_arg,
-                };
-                gd.hand.push(newCard);
-                this.game.updateHand(gd.hand);
-            }
-        }
-        // Update card count for the player who drew the card
-        if (playerId !== null) {
-            if (gd.players?.[playerId]) {
-                const currentCount = Number(gd.players[playerId].handCount ?? 0);
-                gd.players[playerId].handCount = currentCount + 1;
-                this.game.updatePlayerCardCount(playerId);
-            }
-        }
-    }
-    async notif_cardsDiscarded(args) {
-        console.log("Cards discarded:", args);
-        this.game.updateDeckDisplay(Math.max(0, this.game.getGamedatas().deckCount || 0));
-        const gd = this.game.getGamedatas();
-        const playerId = this.asInt(args.player_id);
-        if (gd.hand) {
-            const discardedIds = new Set();
-            if (Array.isArray(args.card_ids)) {
-                for (const raw of args.card_ids) {
-                    const n = this.asInt(raw);
-                    if (n !== null)
-                        discardedIds.add(n);
-                }
-            }
-            gd.hand = gd.hand.filter((card) => {
-                const id = this.asInt(card.id);
-                // If we can't parse the id, don't accidentally delete the card.
-                if (id === null)
-                    return true;
-                return !discardedIds.has(id);
-            });
-            this.game.updateHand(gd.hand);
-        }
-        // Update card count for the player who discarded cards
-        if (playerId !== null) {
-            if (gd.players?.[playerId]) {
-                const discardedCount = Array.isArray(args.card_ids) ? args.card_ids.length : 0;
-                const currentCount = Number(gd.players[playerId].handCount ?? 0);
-                gd.players[playerId].handCount = Math.max(0, currentCount - discardedCount);
-                this.game.updatePlayerCardCount(playerId);
-            }
-        }
-        // Update discard display to show one of the discarded cards as the new top.
-        const top = args.discard_top_card;
-        if (top && typeof top === "object") {
-            const id = this.asInt(top.id);
-            const type = typeof top.type === "string" ? top.type : null;
-            const typeArg = this.asInt(top.type_arg);
-            if (id !== null && type && typeArg !== null) {
-                this.game.updateDiscardDisplay({ id, type, type_arg: typeArg });
-            }
-        }
-    }
-    async notif_turnEnded(args) {
-        console.log("Turn ended:", args);
-    }
-    async notif_emptyHandDraw(args) {
-        console.log("Empty hand draw:", args);
-        const deckCount = this.asInt(args.deckCount);
-        if (deckCount !== null) {
-            this.setDeckCount(deckCount);
-        }
-        else {
-            this.decDeckCount(3);
-        }
-        // Update card count for the player who drew cards (0 -> 3)
-        const playerId = this.asInt(args.player_id);
-        if (playerId !== null) {
-            const gd = this.game.getGamedatas();
-            if (gd.players?.[playerId]) {
-                gd.players[playerId].handCount = 3;
-                this.game.updatePlayerCardCount(playerId);
-            }
-        }
-    }
-    async notif_discardAndDraw(args) {
-        console.log("Discard and draw:", args);
-        const deckCount = this.asInt(args.deckCount);
-        if (deckCount !== null) {
-            this.setDeckCount(deckCount);
-        }
-        else {
-            this.decDeckCount(3);
-        }
-        // Update card count for the player who discarded and drew (1 -> 3, so net +2)
-        const playerId = this.asInt(args.player_id);
-        if (playerId !== null) {
-            const gd = this.game.getGamedatas();
-            if (gd.players?.[playerId]) {
-                // Player had 1 card, discarded it, drew 3, so hand count = 3
-                gd.players[playerId].handCount = 3;
-                this.game.updatePlayerCardCount(playerId);
-            }
-        }
-    }
-    async notif_deckReshuffled(args) {
-        console.log("Deck reshuffled:", args);
-        this.game.updateDeckDisplay(this.game.getGamedatas().deckCount || 0);
-        this.game.updateDiscardDisplay(null);
-        this.game.clearPendingDiscardState();
-    }
-    // Action card notifications
-    async notif_getOffThePony(args) {
-        console.log("Get off the pony:", args);
-        const playerId = this.asInt(args.player_id);
-        const targetPlayerId = this.asInt(args.target_player_id);
-        if (playerId !== null)
-            this.applyGoldenPotatoesDelta(playerId, 1);
-        if (targetPlayerId !== null)
-            this.applyGoldenPotatoesDelta(targetPlayerId, -1);
-    }
-    async notif_lendMeABuck(args) {
-        console.log("Lend me a buck:", args);
-        const cardId = this.asInt(args.card_id);
-        const targetPlayerId = this.asInt(args.target_player_id);
-        const playerId = this.asInt(args.player_id);
-        if (targetPlayerId === this.game.bga.gameui.player_id && cardId !== null) {
-            this.game.removeCardFromMyHand(cardId);
-        }
-        if (playerId === this.game.bga.gameui.player_id && cardId !== null) {
-            const cardType = args.card_type;
-            const cardTypeArg = this.asInt(args.card_type_arg);
-            if (cardType && cardTypeArg !== null) {
-                this.game.addCardToMyHand({ id: cardId, type: cardType, type_arg: cardTypeArg });
-            }
-            else {
-                const cached = this.game.getRevealedCardFromCache(cardId);
-                if (cached)
-                    this.game.addCardToMyHand(cached);
-            }
-        }
-        // Update card counts for affected players
-        if (targetPlayerId !== null) {
-            const gd = this.game.getGamedatas();
-            if (gd.players?.[targetPlayerId]) {
-                const currentCount = Number(gd.players[targetPlayerId].handCount ?? 0);
-                gd.players[targetPlayerId].handCount = Math.max(0, currentCount - 1);
-                this.game.updatePlayerCardCount(targetPlayerId);
-            }
-        }
-        if (playerId !== null && playerId !== targetPlayerId) {
-            const gd = this.game.getGamedatas();
-            if (gd.players?.[playerId]) {
-                const currentCount = Number(gd.players[playerId].handCount ?? 0);
-                gd.players[playerId].handCount = currentCount + 1;
-                this.game.updatePlayerCardCount(playerId);
-            }
-        }
-    }
-    async notif_runawayPotatoes(args) {
-        console.log("Runaway potatoes:", args);
-        this.game.updateDeckDisplay(this.game.getGamedatas().deckCount || 0);
-    }
-    async notif_harryPotato(args) {
-        console.log("Harry Potato:", args);
-        const deckCount = this.asInt(args.deckCount);
-        if (deckCount !== null) {
-            this.setDeckCount(deckCount);
-        }
-        // Update card count for the player who drew cards (+2)
-        // NOTE: For the active player, handUpdated already updated the count correctly,
-        // so we only update for other players' views
-        const playerId = this.asInt(args.player_id);
-        if (playerId !== null && playerId !== this.game.bga.gameui.player_id) {
-            const gd = this.game.getGamedatas();
-            if (gd.players?.[playerId]) {
-                const currentCount = Number(gd.players[playerId].handCount ?? 0);
-                gd.players[playerId].handCount = currentCount + 2;
-                this.game.updatePlayerCardCount(playerId);
-            }
-        }
-    }
-    async notif_popePotato(args) {
-        console.log("Pope Potato:", args);
-        const cardId = this.asInt(args.card_id);
-        const targetPlayerId = this.asInt(args.target_player_id);
-        const playerId = this.asInt(args.player_id);
-        if (targetPlayerId === this.game.bga.gameui.player_id && cardId !== null) {
-            this.game.removeCardFromMyHand(cardId);
-        }
-        if (playerId === this.game.bga.gameui.player_id && cardId !== null) {
-            const cardType = args.card_type;
-            const cardTypeArg = this.asInt(args.card_type_arg);
-            if (cardType && cardTypeArg !== null) {
-                this.game.addCardToMyHand({ id: cardId, type: cardType, type_arg: cardTypeArg });
-            }
-            else {
-                const cached = this.game.getRevealedCardFromCache(cardId);
-                if (cached)
-                    this.game.addCardToMyHand(cached);
-            }
-        }
-        // Update card counts for affected players
-        if (targetPlayerId !== null) {
-            const gd = this.game.getGamedatas();
-            if (gd.players?.[targetPlayerId]) {
-                const currentCount = Number(gd.players[targetPlayerId].handCount ?? 0);
-                gd.players[targetPlayerId].handCount = Math.max(0, currentCount - 1);
-                this.game.updatePlayerCardCount(targetPlayerId);
-            }
-        }
-        if (playerId !== null && playerId !== targetPlayerId) {
-            const gd = this.game.getGamedatas();
-            if (gd.players?.[playerId]) {
-                const currentCount = Number(gd.players[playerId].handCount ?? 0);
-                gd.players[playerId].handCount = currentCount + 1;
-                this.game.updatePlayerCardCount(playerId);
-            }
-        }
-    }
-    async notif_popePotatoFail(args) {
-        console.log("Pope Potato failed:", args);
-    }
-    async notif_lookAhead(args) {
-        console.log("Look ahead:", args);
-        const targetPlayerId = this.asInt(args.target_player_id);
-        if (targetPlayerId !== null)
-            this.applyGoldenPotatoesDelta(targetPlayerId, -1);
-    }
-    async notif_potatoOfTheYear(args) {
-        console.log("Potato of the year:", args);
-        const playerId = this.asInt(args.player_id);
-        if (playerId !== null)
-            this.applyGoldenPotatoesDelta(playerId, 1);
-    }
-    async notif_potatoOfDestiny(args) {
-        console.log("Potato of destiny:", args);
-        const deckCount = this.asInt(args.deckCount);
-        if (deckCount !== null) {
-            this.setDeckCount(deckCount);
-        }
-        // Target player discards hand and draws 2, so hand count becomes 2
-        const targetPlayerId = this.asInt(args.target_player_id);
-        if (targetPlayerId !== null) {
-            const gd = this.game.getGamedatas();
-            if (gd.players?.[targetPlayerId]) {
-                gd.players[targetPlayerId].handCount = 2;
-                this.game.updatePlayerCardCount(targetPlayerId);
-            }
-        }
-    }
-    async notif_potatoDawan(args) {
-        console.log("Potato Dawan:", args);
-        const cardId = this.asInt(args.card_id);
-        const targetPlayerId = this.asInt(args.target_player_id);
-        const playerId = this.asInt(args.player_id);
-        if (targetPlayerId === this.game.bga.gameui.player_id && cardId !== null) {
-            this.game.removeCardFromMyHand(cardId);
-        }
-        if (playerId === this.game.bga.gameui.player_id && cardId !== null) {
-            const cardType = args.card_type;
-            const cardTypeArg = this.asInt(args.card_type_arg);
-            if (cardType && cardTypeArg !== null) {
-                this.game.addCardToMyHand({ id: cardId, type: cardType, type_arg: cardTypeArg });
-            }
-            else {
-                const cached = this.game.getRevealedCardFromCache(cardId);
-                if (cached)
-                    this.game.addCardToMyHand(cached);
-            }
-        }
-        // Update card counts for affected players
-        if (targetPlayerId !== null) {
-            const gd = this.game.getGamedatas();
-            if (gd.players?.[targetPlayerId]) {
-                const currentCount = Number(gd.players[targetPlayerId].handCount ?? 0);
-                gd.players[targetPlayerId].handCount = Math.max(0, currentCount - 1);
-                this.game.updatePlayerCardCount(targetPlayerId);
-            }
-        }
-        if (playerId !== null && playerId !== targetPlayerId) {
-            const gd = this.game.getGamedatas();
-            if (gd.players?.[playerId]) {
-                const currentCount = Number(gd.players[playerId].handCount ?? 0);
-                gd.players[playerId].handCount = currentCount + 1;
-                this.game.updatePlayerCardCount(playerId);
-            }
-        }
-    }
-    async notif_jumpToTheSide(args) {
-        console.log("Jump to the side:", args);
-        const deckCount = this.asInt(args.deckCount);
-        if (deckCount !== null) {
-            this.setDeckCount(deckCount);
-        }
-    }
-    async notif_papageddonOrder(args) {
-        console.log("Papageddon order reversed:", args);
-    }
-    async notif_papageddonSteal(args) {
-        console.log("Papageddon steal:", args);
-        const cardId = this.asInt(args.card_id);
-        const targetPlayerId = this.asInt(args.target_player_id);
-        const playerId = this.asInt(args.player_id);
-        if (targetPlayerId === this.game.bga.gameui.player_id && cardId !== null) {
-            this.game.removeCardFromMyHand(cardId);
-        }
-        // Update card counts for affected players
-        if (targetPlayerId !== null) {
-            const gd = this.game.getGamedatas();
-            if (gd.players?.[targetPlayerId]) {
-                const currentCount = Number(gd.players[targetPlayerId].handCount ?? 0);
-                gd.players[targetPlayerId].handCount = Math.max(0, currentCount - 1);
-                this.game.updatePlayerCardCount(targetPlayerId);
-            }
-        }
-        if (playerId !== null && playerId !== targetPlayerId) {
-            const gd = this.game.getGamedatas();
-            if (gd.players?.[playerId]) {
-                const currentCount = Number(gd.players[playerId].handCount ?? 0);
-                gd.players[playerId].handCount = currentCount + 1;
-                this.game.updatePlayerCardCount(playerId);
-            }
-        }
-    }
-    async notif_papageddonStealPrivate(args) {
-        console.log("Papageddon steal (private):", args);
-        const cardId = this.asInt(args.card_id);
-        const playerId = this.asInt(args.player_id);
-        if (playerId !== this.game.bga.gameui.player_id || cardId === null)
-            return;
-        const cardType = args.card_type;
-        const cardTypeArg = this.asInt(args.card_type_arg);
-        if (cardType && cardTypeArg !== null) {
-            this.game.addCardToMyHand({ id: cardId, type: cardType, type_arg: cardTypeArg });
-        }
-    }
-    async notif_spiderPotato(args) {
-        console.log("Spider potato:", args);
-        // Hands are exchanged, so we need to swap the hand counts for both players
-        const player1Id = this.asInt(args.player1_id);
-        const player2Id = this.asInt(args.player2_id);
-        if (player1Id !== null && player2Id !== null) {
-            const gd = this.game.getGamedatas();
-            // Get current hand counts
-            const player1Count = Number(gd.players?.[player1Id]?.handCount ?? 0);
-            const player2Count = Number(gd.players?.[player2Id]?.handCount ?? 0);
-            // If server sent hand counts, use those; otherwise swap the existing counts
-            const player1NewCount = this.asInt(args.player1_handCount);
-            const player2NewCount = this.asInt(args.player2_handCount);
-            if (player1NewCount !== null && player2NewCount !== null) {
-                // Server provided the new counts
-                gd.players[player1Id].handCount = player1NewCount;
-                gd.players[player2Id].handCount = player2NewCount;
-            }
-            else {
-                // Swap the hand counts (Player 1 gets Player 2's count, and vice versa)
-                gd.players[player1Id].handCount = player2Count;
-                gd.players[player2Id].handCount = player1Count;
-            }
-            // Update the display for both players
-            this.game.updatePlayerCardCount(player1Id);
-            this.game.updatePlayerCardCount(player2Id);
-        }
-    }
-    async notif_cardSelected(args) {
-        console.log("Card selected:", args);
-        const cardId = this.asInt(args.card_id);
-        const cardTypeArg = this.asInt(args.card_type_arg);
-        if (cardId !== null && typeof args.card_type === "string" && cardTypeArg !== null) {
-            this.game.cacheRevealedCard({ id: cardId, type: args.card_type, type_arg: cardTypeArg });
-        }
-    }
-    async notif_cardNameSelected(args) {
-        console.log("Card name selected:", args);
-    }
-}
-
-/*
- *------
- * BGA framework: Gregory Isabelli & Emmanuel Colin & BoardGameArena
- * DondeLasPapasQueman implementation : © tikoflano
- *
- * This code has been produced on the BGA studio platform for use on http://boardgamearena.com.
- * See http://en.boardgamearena.com/#!doc/Studio for more information.
- * -----
- */
+let BgaAnimations$1;
+let BgaCards$1;
 class Game {
+    static setBgaLibs(animations, cards) {
+        BgaAnimations$1 = animations;
+        BgaCards$1 = cards;
+    }
     constructor(bga) {
-        // In ReactionPhase we need to avoid double-sending actions (race with auto-skip).
+        // ReactionPhase double-send guard
         this.reactionActionSent = false;
-        // Selected cards for threesome
-        this.selectedCards = [];
-        // Latest discarded card (for display)
-        this.latestDiscardedCard = null;
-        // When a card is played, we optimistically show it in discard immediately.
-        // If it gets interrupted, we revert back to the previous discard.
-        this.pendingDiscardCardId = null;
-        this.discardBeforePending = null;
-        // Cache revealed card identity by id (used to update hands without refresh)
+        // TargetSelection state
+        this.selectedTargets = [];
+        // Revealed card cache (for steal-card effects)
         this.revealedCardsById = new Map();
-        this.handView = new HandView();
-        this.deckView = new DeckView();
-        this.discardView = new DiscardView();
-        this.goldenPotatoView = new GoldenPotatoView();
-        this.goldenPotatoPileView = new GoldenPotatoPileView();
+        // ========================================================================
+        //  ReactionPhase state
+        // ========================================================================
+        this.reactionCountdownId = null;
+        this.reactionAutoSkipId = null;
+        this.reactionSkipButton = null;
+        this.reactionTimeSeconds = 7;
+        // ========================================================================
+        //  CardSelection state (Pope Potato / Potato Dawan pick-a-card)
+        // ========================================================================
+        this.cardSelectionDialog = null;
         console.log("dondelaspapasqueman constructor");
         this.bga = bga;
-        this.stateHandlers = createStateHandlers(this);
-        this.notifications = new GameNotifications(this);
-    }
-    asInt(value) {
-        if (typeof value === "number" && Number.isFinite(value))
-            return value;
-        if (typeof value === "string" && value.trim() !== "") {
-            const n = Number(value);
-            return Number.isFinite(n) ? n : null;
-        }
-        return null;
     }
     getGamedatas() {
         return this.gamedatas;
     }
-    getSelectedCards() {
-        return this.selectedCards;
+    setup(gamedatas) {
+        console.log("Starting game setup", gamedatas);
+        this.gamedatas = gamedatas;
+        this.bga.gameArea.getElement().insertAdjacentHTML("beforeend", `
+      <div id="dlpq-table">
+        <div id="dlpq-common-area">
+          <div id="dlpq-deck"></div>
+        </div>
+        <div id="dlpq-hand-wrap" class="whiteblock">
+          <b>${_("My hand")}</b>
+          <div id="dlpq-hand"></div>
+        </div>
+      </div>
+      `);
+        this.initCardManager();
+        this.initHandStock(gamedatas.hand || []);
+        this.initDrawDeck(gamedatas.deckCount || 0);
+        this.setupPlayerPanelCounters();
+        this.setupNotifications();
+        console.log("Ending game setup");
     }
-    clearSelectedCards() {
-        this.selectedCards = [];
+    // ========================================================================
+    //  Card Manager & Stocks
+    // ========================================================================
+    initCardManager() {
+        this.animationManager = new BgaAnimations$1.Manager({
+            animationsActive: () => this.bga.gameui.bgaAnimationsActive(),
+        });
+        const cardWidth = 120;
+        const cardHeight = 168;
+        this.cardsManager = new BgaCards$1.Manager({
+            animationManager: this.animationManager,
+            type: "dlpq-card",
+            getId: (card) => `dlpq-card-${card.id}`,
+            cardWidth,
+            cardHeight,
+            cardBorderRadius: "8px",
+            isCardVisible: (card) => !!card.type,
+            setupDiv: (card, div) => {
+                if (card.type) {
+                    div.dataset.cardType = card.type;
+                }
+            },
+            setupFrontDiv: (card, div) => {
+                if (!card.type)
+                    return;
+                const decoded = decodeCardTypeArg(card.type_arg || 0);
+                const name = getCardName(card);
+                const value = getCardValue(card);
+                div.dataset.cardType = card.type;
+                div.innerHTML = `
+          ${decoded.isAlarm ? '<div class="dlpq-alarm-dot" title="' + _("Alarm") + '"></div>' : ""}
+          <div class="dlpq-card-type-label">${card.type}</div>
+          <div class="dlpq-card-name">${name}</div>
+          <div class="dlpq-card-value">${_("Value")}: ${value}</div>
+        `;
+                this.bga.gameui.addTooltipHtml(div.id, getCardTooltipHtml(card));
+            },
+            setupBackDiv: (_card, div) => {
+                div.innerHTML = "";
+            },
+            fakeCardGenerator: (deckId) => ({ id: `${deckId}-fake-top` }),
+        });
     }
-    /**
-     * Get win threshold based on player count
-     * Prefers value from server (single source of truth), with fallback calculation for backwards compatibility
-     */
-    getWinThreshold() {
-        // Prefer value from server (single source of truth)
-        if (this.gamedatas.winThreshold !== undefined) {
-            return this.gamedatas.winThreshold;
+    initHandStock(hand) {
+        this.handStock = new BgaCards$1.HandStock(this.cardsManager, document.getElementById("dlpq-hand"), {
+            cardOverlap: "60px",
+            cardShift: "15px",
+            inclination: 4,
+        });
+        if (hand.length > 0) {
+            this.handStock.addCards(hand);
         }
-        // Fallback calculation (for backwards compatibility or if server doesn't send it)
-        const playerCount = Object.keys(this.gamedatas.players || {}).length;
-        return playerCount <= 3 ? 8 : playerCount <= 5 ? 6 : 5;
     }
-    /**
-     * Setup golden potato counter and card count display in player panels
-     */
+    initDrawDeck(deckCount) {
+        this.drawDeck = new BgaCards$1.Deck(this.cardsManager, document.getElementById("dlpq-deck"), {
+            cardNumber: deckCount,
+            counter: {
+                show: true,
+                position: "bottom",
+                extraClasses: "round",
+            },
+            autoUpdateCardNumber: false,
+        });
+    }
+    // ========================================================================
+    //  Hand / Deck helpers (used by notifications)
+    // ========================================================================
+    removeCardFromHand(cardId) {
+        const card = this.handStock
+            .getCards()
+            .find((c) => c.id === cardId);
+        if (card) {
+            this.handStock.removeCard(card);
+        }
+        this.syncHandToGamedata();
+    }
+    addCardToHand(card) {
+        this.handStock.addCard(card);
+        this.syncHandToGamedata();
+    }
+    replaceHand(cards) {
+        this.handStock.removeAll();
+        if (cards.length > 0) {
+            this.handStock.addCards(cards);
+        }
+        this.gamedatas.hand = cards;
+    }
+    syncHandToGamedata() {
+        this.gamedatas.hand = this.handStock.getCards();
+    }
+    setDeckCount(count) {
+        const c = Math.max(0, count);
+        this.gamedatas.deckCount = c;
+        this.drawDeck.setCardNumber(c);
+    }
+    decDeckCount(delta) {
+        const current = typeof this.gamedatas.deckCount === "number"
+            ? this.gamedatas.deckCount
+            : 0;
+        this.setDeckCount(current - delta);
+    }
+    // ========================================================================
+    //  Player panel counters
+    // ========================================================================
     setupPlayerPanelCounters() {
         const winThreshold = this.getWinThreshold();
         const players = this.gamedatas.players || {};
@@ -1702,71 +380,27 @@ class Game {
             const player = players[playerId];
             const goldenPotatoes = Number(player.golden_potatoes ?? player.score ?? 0);
             const handCount = Number(player.handCount ?? 0);
-            // Get player panel element
             const panelElement = this.bga.playerPanels.getElement(playerId);
             if (!panelElement)
                 continue;
-            // Check if counters container already exists
-            let countersContainer = panelElement.querySelector('.player-counters-container');
+            let countersContainer = panelElement.querySelector(".player-counters-container");
             if (!countersContainer) {
-                // Create container for both counters
-                countersContainer = document.createElement('div');
-                countersContainer.className = 'player-counters-container';
+                countersContainer = document.createElement("div");
+                countersContainer.className = "player-counters-container";
                 panelElement.appendChild(countersContainer);
             }
-            // Setup golden potato counter
-            let counterElement = countersContainer.querySelector('.golden-potato-counter');
-            if (!counterElement) {
-                // Create counter element
-                counterElement = document.createElement('div');
-                counterElement.className = 'golden-potato-counter';
-                counterElement.innerHTML = `
-          <span class="golden-potato-icon">🥔</span>
+            countersContainer.innerHTML = `
+        <div class="golden-potato-counter">
+          <span class="golden-potato-icon">\u{1F954}</span>
           <span class="golden-potato-count">${goldenPotatoes}/${winThreshold}</span>
-        `;
-                countersContainer.appendChild(counterElement);
-            }
-            else {
-                // Update existing counter
-                const countSpan = counterElement.querySelector('.golden-potato-count');
-                if (countSpan) {
-                    countSpan.textContent = `${goldenPotatoes}/${winThreshold}`;
-                }
-            }
-            // Setup card count counter
-            let cardCounterElement = countersContainer.querySelector('.card-count-counter');
-            if (!cardCounterElement) {
-                // Create card counter element
-                cardCounterElement = document.createElement('div');
-                cardCounterElement.className = 'card-count-counter';
-                if (handCount > 7) {
-                    cardCounterElement.classList.add('over-limit');
-                }
-                cardCounterElement.innerHTML = `
-          <span class="card-count-icon">🃏</span>
+        </div>
+        <div class="card-count-counter${handCount > 7 ? " over-limit" : ""}">
+          <span class="card-count-icon">\u{1F0CF}</span>
           <span class="card-count-number">${handCount}/7</span>
-        `;
-                countersContainer.appendChild(cardCounterElement);
-            }
-            else {
-                // Update existing counter
-                const countSpan = cardCounterElement.querySelector('.card-count-number');
-                if (countSpan) {
-                    countSpan.textContent = `${handCount}/7`;
-                }
-                // Update over-limit class
-                if (handCount > 7) {
-                    cardCounterElement.classList.add('over-limit');
-                }
-                else {
-                    cardCounterElement.classList.remove('over-limit');
-                }
-            }
+        </div>
+      `;
         }
     }
-    /**
-     * Update golden potato counter for a specific player
-     */
     updatePlayerPanelCounter(playerId) {
         const winThreshold = this.getWinThreshold();
         const player = this.gamedatas.players?.[playerId];
@@ -1776,34 +410,11 @@ class Game {
         const panelElement = this.bga.playerPanels.getElement(playerId);
         if (!panelElement)
             return;
-        let countersContainer = panelElement.querySelector('.player-counters-container');
-        if (!countersContainer) {
-            // Create container if it doesn't exist
-            countersContainer = document.createElement('div');
-            countersContainer.className = 'player-counters-container';
-            panelElement.appendChild(countersContainer);
-        }
-        let counterElement = countersContainer.querySelector('.golden-potato-counter');
-        if (counterElement) {
-            const countSpan = counterElement.querySelector('.golden-potato-count');
-            if (countSpan) {
-                countSpan.textContent = `${goldenPotatoes}/${winThreshold}`;
-            }
-        }
-        else {
-            // Create if it doesn't exist
-            counterElement = document.createElement('div');
-            counterElement.className = 'golden-potato-counter';
-            counterElement.innerHTML = `
-        <span class="golden-potato-icon">🥔</span>
-        <span class="golden-potato-count">${goldenPotatoes}/${winThreshold}</span>
-      `;
-            countersContainer.appendChild(counterElement);
+        const countSpan = panelElement.querySelector(".golden-potato-count");
+        if (countSpan) {
+            countSpan.textContent = `${goldenPotatoes}/${winThreshold}`;
         }
     }
-    /**
-     * Update card count counter for a specific player
-     */
     updatePlayerCardCount(playerId) {
         const player = this.gamedatas.players?.[playerId];
         if (!player)
@@ -1812,321 +423,856 @@ class Game {
         const panelElement = this.bga.playerPanels.getElement(playerId);
         if (!panelElement)
             return;
-        let countersContainer = panelElement.querySelector('.player-counters-container');
-        if (!countersContainer) {
-            // Create container if it doesn't exist
-            countersContainer = document.createElement('div');
-            countersContainer.className = 'player-counters-container';
-            panelElement.appendChild(countersContainer);
+        const countSpan = panelElement.querySelector(".card-count-number");
+        if (countSpan) {
+            countSpan.textContent = `${handCount}/7`;
         }
-        let cardCounterElement = countersContainer.querySelector('.card-count-counter');
-        if (cardCounterElement) {
-            const countSpan = cardCounterElement.querySelector('.card-count-number');
-            if (countSpan) {
-                countSpan.textContent = `${handCount}/7`;
-            }
-            // Update over-limit class
-            if (handCount > 7) {
-                cardCounterElement.classList.add('over-limit');
-            }
-            else {
-                cardCounterElement.classList.remove('over-limit');
-            }
-        }
-        else {
-            // Create if it doesn't exist
-            cardCounterElement = document.createElement('div');
-            cardCounterElement.className = 'card-count-counter';
-            if (handCount > 7) {
-                cardCounterElement.classList.add('over-limit');
-            }
-            cardCounterElement.innerHTML = `
-        <span class="card-count-icon">🃏</span>
-        <span class="card-count-number">${handCount}/7</span>
-      `;
-            countersContainer.appendChild(cardCounterElement);
+        const counterEl = panelElement.querySelector(".card-count-counter");
+        if (counterEl) {
+            counterEl.classList.toggle("over-limit", handCount > 7);
         }
     }
-    /**
-     * Refresh all player card counts from game data
-     */
-    refreshAllPlayerCardCounts() {
-        const players = this.gamedatas.players || {};
-        for (const playerIdStr in players) {
-            const playerId = Number(playerIdStr);
-            this.updatePlayerCardCount(playerId);
-        }
-    }
-    setup(gamedatas) {
-        console.log("Starting game setup");
-        this.gamedatas = gamedatas;
-        // Create game area structure
-        this.bga.gameArea.getElement().insertAdjacentHTML("beforeend", `
-            <div id="hand-area"></div>
-            <div id="golden-potato-cards-area">
-                <h3>Golden Potatoes</h3>
-                <div id="golden-potato-cards"></div>
-            </div>
-            <div id="common-area">
-                <div id="golden-potato-pile-card" class="golden-potato-pile-card">
-                    <div class="card-back"></div>
-                    <div class="pile-count">0</div>
-                </div>
-                <div id="deck-card" class="deck-card">
-                    <div class="card-back"></div>
-                    <div class="deck-count">0</div>
-                </div>
-                <div id="discard-card" class="discard-card">
-                    <div class="card-placeholder">Discard Pile</div>
-                </div>
-            </div>
-        `);
-        // Display hand
-        this.updateHand(gamedatas.hand || []);
-        // Update golden potato cards display
-        const currentPlayerId = this.bga.gameui.player_id;
-        const currentPlayer = gamedatas.players?.[currentPlayerId];
-        const goldenPotatoes = Number(currentPlayer?.golden_potatoes || currentPlayer?.score || 0);
-        this.updateGoldenPotatoCards(goldenPotatoes);
-        // Update golden potato pile, deck and discard displays
-        this.updateGoldenPotatoPileDisplay(gamedatas.goldenPotatoPileCount || 0);
-        this.updateDeckDisplay(gamedatas.deckCount || 0);
-        this.updateDiscardDisplay(gamedatas.discardTopCard ?? null);
-        // Setup player panel counters
-        this.setupPlayerPanelCounters();
-        // Setup game notifications
-        this.notifications.setup();
-        console.log("Ending game setup");
-    }
-    ///////////////////////////////////////////////////
-    //// Game & client states
-    onEnteringState(stateName, args) {
-        console.log("Entering state: " + stateName, args);
-        if (stateName === "ReactionPhase")
-            this.resetReactionActionSent();
-        this.stateHandlers[stateName]?.onEnter?.(args);
-    }
-    onLeavingState(stateName) {
-        console.log("Leaving state: " + stateName);
-        this.stateHandlers[stateName]?.onLeave?.();
-        if (stateName === "ReactionPhase")
-            this.resetReactionActionSent();
-    }
-    onUpdateActionButtons(stateName, args) {
-        console.log("onUpdateActionButtons: " + stateName, args);
-        this.stateHandlers[stateName]?.onUpdateActionButtons?.(args);
-    }
-    ///////////////////////////////////////////////////
-    //// Utility methods
-    updateHand(hand, overrideIsReactionPhase) {
-        const isReactionPhase = overrideIsReactionPhase !== undefined
-            ? overrideIsReactionPhase
-            : this.gamedatas.gamestate.name === "ReactionPhase" && this.bga.players.isCurrentPlayerActive();
-        const isThreesome = isReactionPhase && this.gamedatas.gamestate.args?.is_threesome === true;
-        this.handView.render({
-            hand,
-            selectedCardIds: this.selectedCards,
-            isReactionPhase,
-            isThreesome,
-            onCardClick: (cardId) => this.onCardClick(cardId),
-            attachTooltip: (nodeId, html) => {
-                // Safe on rerenders: remove then re-add.
-                this.bga.gameui.removeTooltip(nodeId);
-                this.bga.gameui.addTooltipHtml(nodeId, html);
-            },
-        });
-    }
-    updateGoldenPotatoPileDisplay(count) {
-        this.goldenPotatoPileView.setCount(count);
-    }
-    updateDeckDisplay(count) {
-        this.deckView.setCount(count);
-    }
-    removeCardFromMyHand(cardId) {
-        if (!this.gamedatas.hand)
+    applyGoldenPotatoesDelta(playerId, delta) {
+        const p = this.gamedatas.players?.[playerId];
+        if (!p)
             return;
-        // Ensure we don't keep a stale selection on a removed card.
-        this.selectedCards = this.selectedCards.filter((id) => id !== cardId);
-        const newHand = this.gamedatas.hand.filter((card) => {
-            const id = this.asInt(card.id);
-            return id === null ? true : id !== cardId;
-        });
-        if (newHand.length !== this.gamedatas.hand.length) {
-            this.gamedatas.hand = newHand;
-            this.updateHand(this.gamedatas.hand);
-        }
+        const current = Number(p.golden_potatoes ?? p.score ?? 0);
+        const next = Math.max(0, current + delta);
+        p.golden_potatoes = next;
+        p.score = next;
+        this.updatePlayerPanelCounter(playerId);
     }
-    addCardToMyHand(card) {
-        if (!this.gamedatas.hand)
-            return;
-        const newId = this.asInt(card.id);
-        if (newId !== null &&
-            this.gamedatas.hand.some((c) => {
-                const existingId = this.asInt(c.id);
-                return existingId !== null && existingId === newId;
-            })) {
-            return;
+    getWinThreshold() {
+        if (this.gamedatas.winThreshold !== undefined) {
+            return this.gamedatas.winThreshold;
         }
-        this.gamedatas.hand.push(card);
-        this.updateHand(this.gamedatas.hand);
+        const playerCount = Object.keys(this.gamedatas.players || {}).length;
+        return playerCount <= 3 ? 8 : playerCount <= 5 ? 6 : 5;
     }
+    // ========================================================================
+    //  Revealed card cache
+    // ========================================================================
     cacheRevealedCard(card) {
         this.revealedCardsById.set(card.id, card);
     }
     getRevealedCardFromCache(cardId) {
         return this.revealedCardsById.get(cardId);
     }
-    /**
-     * Optimistically show a played card in the discard pile immediately.
-     * If the play is interrupted, call `cancelPendingDiscard` to revert.
-     */
-    optimisticallySetDiscard(card) {
-        this.discardBeforePending = this.latestDiscardedCard;
-        this.pendingDiscardCardId = card.id;
-        this.updateDiscardDisplay(card);
-    }
-    confirmDiscardMovedToDiscard(card) {
-        // Always update the display to show the confirmed card (this overrides any pending discard)
-        this.updateDiscardDisplay(card);
-        // Clear pending discard state if this matches the pending card
-        if (this.pendingDiscardCardId === card.id) {
-            this.pendingDiscardCardId = null;
-            this.discardBeforePending = null;
+    // ========================================================================
+    //  Utility
+    // ========================================================================
+    asInt(value) {
+        if (typeof value === "number" && Number.isFinite(value))
+            return value;
+        if (typeof value === "string" && value.trim() !== "") {
+            const n = Number(value);
+            return Number.isFinite(n) ? n : null;
         }
-        // Note: If there's a different pending discard, we leave it for cardCancelled to handle
-        // The display is already updated to show this card, so the pending state is just for cleanup
+        return null;
     }
-    cancelPendingDiscard(cardId) {
-        if (this.pendingDiscardCardId !== cardId)
+    myPlayerId() {
+        return this.bga.players.getCurrentPlayerId();
+    }
+    // ========================================================================
+    //  State machine
+    // ========================================================================
+    onEnteringState(stateName, args) {
+        console.log("Entering state:", stateName, args);
+        switch (stateName) {
+            case "PlayerTurn":
+                this.enterPlayerTurn(args);
+                break;
+            case "ReactionPhase":
+                this.enterReactionPhase(args);
+                break;
+            case "DiscardPhase":
+                this.enterDiscardPhase(args);
+                break;
+            case "CardSelection":
+                this.enterCardSelection(args);
+                break;
+            case "CardNameSelection":
+                this.enterCardNameSelection(args);
+                break;
+        }
+    }
+    onLeavingState(stateName) {
+        console.log("Leaving state:", stateName);
+        switch (stateName) {
+            case "PlayerTurn":
+                this.leavePlayerTurn();
+                break;
+            case "ReactionPhase":
+                this.leaveReactionPhase();
+                break;
+            case "TargetSelection":
+                this.leaveTargetSelection();
+                break;
+            case "DiscardPhase":
+                this.leaveDiscardPhase();
+                break;
+            case "CardSelection":
+                this.leaveCardSelection();
+                break;
+            case "CardNameSelection":
+                this.leaveCardNameSelection();
+                break;
+        }
+    }
+    onUpdateActionButtons(stateName, args) {
+        console.log("onUpdateActionButtons:", stateName, args);
+        switch (stateName) {
+            case "PlayerTurn":
+                this.updatePlayerTurnButtons(args);
+                break;
+            case "TargetSelection":
+                this.updateTargetSelectionButtons(args);
+                break;
+            case "ReactionPhase":
+                this.updateReactionPhaseButtons(args);
+                break;
+            case "DiscardPhase":
+                this.updateDiscardPhaseButtons(args);
+                break;
+        }
+    }
+    // ========================================================================
+    //  PlayerTurn state
+    // ========================================================================
+    enterPlayerTurn(_args) {
+        if (!this.bga.players.isCurrentPlayerActive())
             return;
-        this.pendingDiscardCardId = null;
-        this.updateDiscardDisplay(this.discardBeforePending);
-        this.discardBeforePending = null;
+        this.handStock.setSelectionMode("multiple");
+        this.handStock.unselectAll();
+        this.handStock.onCardClick = (_card) => {
+            this.updatePlayerTurnButtons(this.gamedatas.gamestate.args || null);
+        };
     }
-    clearPendingDiscardState() {
-        this.pendingDiscardCardId = null;
-        this.discardBeforePending = null;
+    leavePlayerTurn() {
+        this.handStock.setSelectionMode("none");
+        this.handStock.unselectAll();
+        this.handStock.onCardClick = undefined;
     }
-    updateDiscardDisplay(card) {
-        this.latestDiscardedCard = card;
-        this.discardView.render(card);
-        // Tooltip for the discard top card (if any).
-        this.bga.gameui.removeTooltip("discard-card");
-        if (card) {
-            this.bga.gameui.addTooltipHtml("discard-card", getCardTooltipHtml(card));
-        }
-    }
-    /**
-     * Update golden potato cards display
-     * Cards are double-sided: one side shows 1, the other shows 2
-     * Display uses as many "2" cards as possible, then a "1" card if needed
-     */
-    updateGoldenPotatoCards(count) {
-        this.goldenPotatoView.render(count);
-    }
-    ///////////////////////////////////////////////////
-    //// ReactionPhase helpers
-    didSendReactionAction() {
-        return this.reactionActionSent;
-    }
-    markReactionActionSent() {
-        this.reactionActionSent = true;
-    }
-    resetReactionActionSent() {
-        this.reactionActionSent = false;
-    }
-    ///////////////////////////////////////////////////
-    //// Player's action
-    onCardClick(card_id) {
-        console.log("onCardClick", card_id);
-        const currentState = this.gamedatas.gamestate.name;
-        const card = this.gamedatas.hand?.find((c) => c.id === card_id);
-        // DiscardPhase: clicking cards should only toggle selection (no server call).
-        if (currentState === "DiscardPhase") {
-            if (!this.bga.gameui.isCurrentPlayerActive())
-                return;
-            if (!card)
-                return;
-            if (this.selectedCards.includes(card_id)) {
-                this.selectedCards = this.selectedCards.filter((id) => id !== card_id);
-            }
-            else {
-                this.selectedCards.push(card_id);
-            }
-            this.updateHand(this.gamedatas.hand || []);
-            this.onUpdateActionButtons("DiscardPhase", this.gamedatas.gamestate.args || null);
+    updatePlayerTurnButtons(args) {
+        if (!this.bga.players.isCurrentPlayerActive())
             return;
+        this.bga.statusBar.removeActionButtons();
+        const stateArgs = args?.args ?? args;
+        const canDiscardAndDraw = !!stateArgs?.canDiscardAndDraw;
+        if (canDiscardAndDraw) {
+            this.bga.statusBar.addActionButton(_("Discard and Draw 3"), () => {
+                this.bga.actions.performAction("actDiscardAndDraw", {});
+            }, { color: "primary" });
         }
-        // In ReactionPhase, ignore extra clicks after we've already sent a reaction action
-        // (prevents double-sends if the user clicks right as auto-skip fires).
-        if (currentState === "ReactionPhase" && this.didSendReactionAction()) {
-            return;
+        const selectedCards = this.handStock.getSelection();
+        const selectedIds = selectedCards.map((c) => c.id);
+        const validPlay = getValidPlayFromSelection(this.handStock.getCards(), selectedIds);
+        if (validPlay) {
+            this.bga.statusBar.addActionButton(validPlay.label, () => this.executePlay(validPlay), { color: "primary" });
         }
-        // Check if we're in reaction phase and this is an interrupt card
-        if (currentState === "ReactionPhase" &&
-            this.bga.players.isCurrentPlayerActive() &&
-            card &&
-            isInterruptCard(card)) {
-            const decoded = decodeCardTypeArg(card.type_arg || 0);
-            const isThreesome = this.gamedatas.gamestate.args?.is_threesome === true;
-            // "No dude" cannot cancel threesomes - prevent clicking it in the UI
-            if (decoded.name_index === 1 && isThreesome) {
-                // "No dude" cannot cancel threesomes
-                return;
-            }
-            // Play the interrupt card
-            this.markReactionActionSent();
-            const actionPromise = decoded.name_index === 1
-                ? // "No dude"
-                    this.bga.actions.performAction("actPlayNoPoh", {})
-                : decoded.name_index === 2
-                    ? // "I told you no dude"
-                        this.bga.actions.performAction("actPlayTeDijeQueNoPoh", {})
-                    : Promise.resolve();
-            // If the action fails (e.g., "No dude" cannot cancel threesomes),
-            // reset the flag and restart the timer so the UI doesn't get stuck
-            actionPromise?.catch(() => {
-                // Only reset if we're still in ReactionPhase (state might have changed)
-                if (this.gamedatas.gamestate.name === "ReactionPhase") {
-                    this.resetReactionActionSent();
-                    // Restart the timer and restore the skip button
-                    this.onUpdateActionButtons("ReactionPhase", this.gamedatas.gamestate.args || null);
-                }
+        this.bga.statusBar.addActionButton(_("End Turn"), () => {
+            this.bga.actions.performAction("actEndTurn", {});
+        }, { color: "alert" });
+    }
+    executePlay(play) {
+        if (play.kind === "single") {
+            this.bga.actions.performAction("actPlayCard", {
+                card_id: play.cardId,
             });
-            return;
         }
-        // Normal card selection for threesome (only in PlayerTurn)
-        if (currentState === "PlayerTurn") {
-            // Toggle selection for threesome
-            if (this.selectedCards.includes(card_id)) {
-                this.selectedCards = this.selectedCards.filter((id) => id !== card_id);
-            }
-            else {
-                if (this.selectedCards.length < 3) {
-                    this.selectedCards.push(card_id);
+        else {
+            this.bga.actions.performAction("actPlayThreesome", {
+                card_ids: play.cardIds,
+            });
+        }
+        this.handStock.unselectAll();
+    }
+    // ========================================================================
+    //  TargetSelection state
+    // ========================================================================
+    leaveTargetSelection() {
+        this.selectedTargets = [];
+    }
+    updateTargetSelectionButtons(args) {
+        if (!this.bga.players.isCurrentPlayerActive())
+            return;
+        if (!args)
+            return;
+        const a = args.args || args;
+        const selectablePlayers = a.selectablePlayers || [];
+        const targetCount = a.targetCount || 1;
+        const requiresMultipleTargets = !!a.requiresMultipleTargets;
+        this.renderTargetButtons(selectablePlayers, targetCount, requiresMultipleTargets);
+    }
+    renderTargetButtons(selectablePlayers, targetCount, requiresMultipleTargets) {
+        this.bga.statusBar.removeActionButtons();
+        for (const player of selectablePlayers) {
+            const isSelected = this.selectedTargets.includes(player.id);
+            const colorBox = player.color
+                ? `<span class="player-color-indicator" style="background-color: #${player.color};"></span>`
+                : "";
+            const name = (player.name || "") + " " + colorBox;
+            const buttonText = isSelected
+                ? _("Deselect ${player_name}").replace("${player_name}", name)
+                : _("Select ${player_name}").replace("${player_name}", name);
+            const btn = this.bga.statusBar.addActionButton(buttonText, () => {
+                const idx = this.selectedTargets.indexOf(player.id);
+                if (idx > -1) {
+                    this.selectedTargets.splice(idx, 1);
+                }
+                else if (this.selectedTargets.length < targetCount) {
+                    this.selectedTargets.push(player.id);
+                }
+                if (this.selectedTargets.length === targetCount &&
+                    !requiresMultipleTargets) {
+                    this.bga.actions.performAction("actSelectTargets", {
+                        targetPlayerIds: this.selectedTargets,
+                    });
+                    this.selectedTargets = [];
                 }
                 else {
-                    // Replace first selected card
-                    this.selectedCards.shift();
-                    this.selectedCards.push(card_id);
+                    this.renderTargetButtons(selectablePlayers, targetCount, requiresMultipleTargets);
+                }
+            }, { color: isSelected ? "secondary" : "primary" });
+            if (btn && colorBox) {
+                btn.innerHTML = buttonText;
+            }
+        }
+        if (requiresMultipleTargets &&
+            this.selectedTargets.length === targetCount) {
+            this.bga.statusBar.addActionButton(_("Confirm Selection"), () => {
+                this.bga.actions.performAction("actSelectTargets", {
+                    targetPlayerIds: this.selectedTargets,
+                });
+                this.selectedTargets = [];
+            }, { color: "primary" });
+        }
+    }
+    enterReactionPhase(args) {
+        if (args?.reaction_time_seconds) {
+            this.reactionTimeSeconds = args.reaction_time_seconds;
+        }
+        this.reactionActionSent = false;
+        this.maybeStartReactionTimer();
+    }
+    leaveReactionPhase() {
+        this.stopReactionTimer();
+        this.reactionActionSent = false;
+    }
+    updateReactionPhaseButtons(args) {
+        if (!this.bga.players.isCurrentPlayerActive()) {
+            this.stopReactionTimer();
+            return;
+        }
+        if (args?.reaction_time_seconds) {
+            this.reactionTimeSeconds = args.reaction_time_seconds;
+        }
+        this.bga.statusBar.removeActionButtons();
+        // Highlight interrupt cards in hand
+        const hand = this.handStock.getCards();
+        for (const card of hand) {
+            const el = this.handStock.getCardElement(card);
+            if (el) {
+                el.classList.toggle("dlpq-interrupt", isInterruptCard(card));
+            }
+        }
+        this.reactionSkipButton = this.bga.statusBar.addActionButton(_("Skip"), () => this.sendReactionSkip(), { color: "primary" });
+        this.maybeStartReactionTimer();
+    }
+    maybeStartReactionTimer() {
+        if (this.gamedatas.gamestate.name !== "ReactionPhase")
+            return;
+        if (!this.bga.players.isCurrentPlayerActive())
+            return;
+        if (this.reactionActionSent)
+            return;
+        if (this.reactionCountdownId !== null ||
+            this.reactionAutoSkipId !== null)
+            return;
+        const seconds = this.reactionTimeSeconds;
+        const deadlineMs = Date.now() + seconds * 1000;
+        let lastShown = seconds;
+        if (this.reactionSkipButton) {
+            this.reactionSkipButton.textContent = _("Skip") + ` (${seconds})`;
+        }
+        this.reactionAutoSkipId = window.setTimeout(() => {
+            if (this.gamedatas.gamestate.name !== "ReactionPhase")
+                return;
+            if (!this.bga.players.isCurrentPlayerActive())
+                return;
+            if (this.reactionActionSent)
+                return;
+            this.sendReactionSkip();
+        }, seconds * 1000);
+        this.reactionCountdownId = window.setInterval(() => {
+            if (this.gamedatas.gamestate.name !== "ReactionPhase" ||
+                !this.bga.players.isCurrentPlayerActive() ||
+                this.reactionActionSent) {
+                this.stopReactionTimer();
+                return;
+            }
+            const left = Math.max(0, Math.ceil((deadlineMs - Date.now()) / 1000));
+            if (left !== lastShown) {
+                lastShown = left;
+                if (this.reactionSkipButton) {
+                    this.reactionSkipButton.textContent =
+                        left > 0 ? _("Skip") + ` (${left})` : _("Skip");
                 }
             }
-            // Update UI
-            this.updateHand(this.gamedatas.hand || []);
-            // Update action buttons
-            this.onUpdateActionButtons(currentState, this.gamedatas.gamestate.args || null);
+        }, 100);
+    }
+    sendReactionSkip() {
+        if (this.reactionActionSent)
+            return;
+        if (this.gamedatas.gamestate.name !== "ReactionPhase") {
+            this.stopReactionTimer();
+            return;
+        }
+        this.reactionActionSent = true;
+        this.bga.actions.performAction("actSkipReaction", {});
+        this.stopReactionTimer();
+    }
+    stopReactionTimer() {
+        if (this.reactionCountdownId !== null) {
+            clearInterval(this.reactionCountdownId);
+            this.reactionCountdownId = null;
+        }
+        if (this.reactionAutoSkipId !== null) {
+            clearTimeout(this.reactionAutoSkipId);
+            this.reactionAutoSkipId = null;
+        }
+        this.reactionSkipButton = null;
+    }
+    // ========================================================================
+    //  DiscardPhase state
+    // ========================================================================
+    enterDiscardPhase(args) {
+        if (!this.bga.players.isCurrentPlayerActive())
+            return;
+        this.handStock.setSelectionMode("multiple");
+        this.handStock.unselectAll();
+        this.handStock.onCardClick = (_card) => {
+            this.updateDiscardPhaseButtons(args);
+        };
+    }
+    leaveDiscardPhase() {
+        this.handStock.setSelectionMode("none");
+        this.handStock.unselectAll();
+        this.handStock.onCardClick = undefined;
+    }
+    updateDiscardPhaseButtons(args) {
+        if (!this.bga.players.isCurrentPlayerActive())
+            return;
+        this.bga.statusBar.removeActionButtons();
+        const handSize = this.handStock.getCards().length;
+        const selectedCount = this.handStock.getSelection().length;
+        const cardsToDiscard = Math.max(0, handSize - 7);
+        if (cardsToDiscard <= 0)
+            return;
+        let label;
+        let disabled = false;
+        if (selectedCount < cardsToDiscard) {
+            const remaining = cardsToDiscard - selectedCount;
+            const word = remaining === 1 ? "card" : "cards";
+            label = _("Select ${count} more ${cardWord}")
+                .replace("${count}", String(remaining))
+                .replace("${cardWord}", word);
+            disabled = true;
+        }
+        else if (selectedCount > cardsToDiscard) {
+            const excess = selectedCount - cardsToDiscard;
+            const word = excess === 1 ? "card" : "cards";
+            label = _("Unselect ${count} more ${cardWord}")
+                .replace("${count}", String(excess))
+                .replace("${cardWord}", word);
+            disabled = true;
+        }
+        else {
+            const word = selectedCount === 1 ? "card" : "cards";
+            label = _("Discard ${count} ${cardWord}")
+                .replace("${count}", String(selectedCount))
+                .replace("${cardWord}", word);
+        }
+        this.bga.statusBar.addActionButton(label, () => {
+            const cardIds = this.handStock
+                .getSelection()
+                .map((c) => c.id);
+            if (this.handStock.getCards().length - cardIds.length !== 7)
+                return;
+            this.bga.actions.performAction("actDiscardCards", {
+                card_ids: cardIds,
+            });
+            this.handStock.unselectAll();
+            this.bga.statusBar.removeActionButtons();
+        }, { color: "primary", disabled });
+    }
+    enterCardSelection(args) {
+        if (!this.bga.players.isCurrentPlayerActive())
+            return;
+        const a = args?.args || args || {};
+        const revealedCards = a.revealedCards || [];
+        const cardBacks = a.cardBacks || [];
+        this.showCardSelectionUI(revealedCards, cardBacks, a.targetPlayerName);
+    }
+    leaveCardSelection() {
+        this.hideCardSelectionUI();
+    }
+    showCardSelectionUI(revealedCards, cardBacks, targetName) {
+        this.hideCardSelectionUI();
+        const container = document.createElement("div");
+        container.id = "dlpq-card-selection";
+        container.className = "whiteblock";
+        const title = targetName
+            ? _("Select a card from ${player_name}").replace("${player_name}", targetName)
+            : _("Select a card");
+        container.innerHTML = `<b>${title}</b><div id="dlpq-card-selection-cards" style="display:flex;gap:12px;justify-content:center;padding:12px;flex-wrap:wrap;"></div>`;
+        const gameArea = this.bga.gameArea.getElement();
+        gameArea.appendChild(container);
+        const cardsDiv = document.getElementById("dlpq-card-selection-cards");
+        if (revealedCards.length > 0) {
+            for (const rc of revealedCards) {
+                const card = {
+                    id: rc.id ?? rc.position,
+                    type: rc.type ?? rc.card_type,
+                    type_arg: rc.type_arg ?? rc.card_type_arg,
+                };
+                const el = this.cardsManager.createCardElement(card, true);
+                el.style.cursor = "pointer";
+                el.addEventListener("click", () => {
+                    this.bga.actions.performAction("actSelectCard", {
+                        cardPosition: rc.position,
+                    });
+                    this.hideCardSelectionUI();
+                });
+                cardsDiv.appendChild(el);
+            }
+        }
+        else if (cardBacks.length > 0) {
+            for (const cb of cardBacks) {
+                const backDiv = document.createElement("div");
+                backDiv.className = "dlpq-card-back-selectable";
+                backDiv.style.cssText =
+                    "width:120px;height:168px;background:#8b0000;border:2px solid #000;border-radius:8px;cursor:pointer;";
+                backDiv.addEventListener("mouseenter", () => {
+                    backDiv.style.transform = "translateY(-5px)";
+                    backDiv.style.boxShadow = "0 4px 8px rgba(0,0,0,0.3)";
+                });
+                backDiv.addEventListener("mouseleave", () => {
+                    backDiv.style.transform = "";
+                    backDiv.style.boxShadow = "";
+                });
+                backDiv.addEventListener("click", () => {
+                    this.bga.actions.performAction("actSelectCard", {
+                        cardPosition: cb.position,
+                    });
+                    this.hideCardSelectionUI();
+                });
+                cardsDiv.appendChild(backDiv);
+            }
+        }
+    }
+    hideCardSelectionUI() {
+        const el = document.getElementById("dlpq-card-selection");
+        if (el)
+            el.remove();
+    }
+    // ========================================================================
+    //  CardNameSelection state
+    // ========================================================================
+    enterCardNameSelection(args) {
+        if (!this.bga.players.isCurrentPlayerActive())
+            return;
+        const a = args?.args || args || {};
+        const cardNames = a.cardNames || {};
+        this.showCardNameSelectionUI(cardNames);
+    }
+    leaveCardNameSelection() {
+        this.hideCardNameSelectionUI();
+    }
+    showCardNameSelectionUI(cardNames) {
+        this.hideCardNameSelectionUI();
+        const container = document.createElement("div");
+        container.id = "dlpq-card-name-selection";
+        container.className = "whiteblock";
+        container.innerHTML = `<b>${_("Select a card name")}</b><div id="dlpq-card-name-buttons" style="display:flex;gap:8px;flex-wrap:wrap;padding:12px;justify-content:center;"></div>`;
+        const gameArea = this.bga.gameArea.getElement();
+        gameArea.appendChild(container);
+        const buttonsDiv = document.getElementById("dlpq-card-name-buttons");
+        for (const [key, name] of Object.entries(cardNames)) {
+            const btn = document.createElement("button");
+            btn.className = "bgabutton bgabutton_blue";
+            btn.textContent = _(name);
+            btn.addEventListener("click", () => {
+                this.bga.actions.performAction("actSelectCardName", {
+                    cardName: key,
+                });
+                this.hideCardNameSelectionUI();
+            });
+            buttonsDiv.appendChild(btn);
+        }
+    }
+    hideCardNameSelectionUI() {
+        const el = document.getElementById("dlpq-card-name-selection");
+        if (el)
+            el.remove();
+    }
+    // ========================================================================
+    //  Notifications
+    // ========================================================================
+    setupNotifications() {
+        console.log("notifications subscriptions setup");
+        this.bga.notifications.setupPromiseNotifications({
+            handlers: [this],
+        });
+    }
+    async notif_handUpdated(args) {
+        if (Array.isArray(args.hand)) {
+            this.replaceHand(args.hand);
+            const pid = this.myPlayerId();
+            if (pid && this.gamedatas.players?.[pid]) {
+                this.gamedatas.players[pid].handCount =
+                    args.hand.length;
+                this.updatePlayerCardCount(pid);
+            }
+        }
+        const dc = this.asInt(args.deckCount);
+        if (dc !== null) {
+            this.setDeckCount(dc);
+        }
+    }
+    async notif_cardPlayed(args) {
+        const playerId = this.asInt(args.player_id);
+        const cardId = this.asInt(args.card_id);
+        if (cardId !== null && playerId === this.myPlayerId()) {
+            this.removeCardFromHand(cardId);
+        }
+        if (playerId !== null &&
+            playerId !== this.myPlayerId()) {
+            const p = this.gamedatas.players?.[playerId];
+            if (p) {
+                const cur = Number(p.handCount ?? 0);
+                p.handCount = Math.max(0, cur - 1);
+                this.updatePlayerCardCount(playerId);
+            }
+        }
+    }
+    async notif_threesomePlayed(args) {
+        const playerId = this.asInt(args.player_id);
+        const delta = this.asInt(args.golden_potatoes) ?? 0;
+        if (playerId !== null && delta !== 0) {
+            this.applyGoldenPotatoesDelta(playerId, delta);
+        }
+    }
+    async notif_threesomeScored(args) {
+        const playerId = this.asInt(args.player_id);
+        const delta = this.asInt(args.golden_potatoes) ?? 0;
+        if (playerId !== null && delta !== 0) {
+            this.applyGoldenPotatoesDelta(playerId, delta);
+        }
+    }
+    async notif_cardMovedToDiscard(_args) {
+        // No-op: discard pile not visually tracked in new UI
+    }
+    async notif_cardCancelled(_args) {
+        // No-op: discard pile not visually tracked
+    }
+    async notif_threesomeCancelled(_args) {
+        // No-op
+    }
+    async notif_cardDrawn(args) {
+        this.decDeckCount(1);
+        const playerId = this.asInt(args.player_id);
+        if (playerId === this.myPlayerId()) {
+            if (args.card_type && args.card_type_arg !== undefined) {
+                const card = {
+                    id: args.card_id,
+                    type: args.card_type,
+                    type_arg: args.card_type_arg,
+                };
+                this.addCardToHand(card);
+            }
+        }
+        if (playerId !== null) {
+            const p = this.gamedatas.players?.[playerId];
+            if (p) {
+                const cur = Number(p.handCount ?? 0);
+                p.handCount = cur + 1;
+                this.updatePlayerCardCount(playerId);
+            }
+        }
+    }
+    async notif_cardsDiscarded(args) {
+        const playerId = this.asInt(args.player_id);
+        if (Array.isArray(args.card_ids)) {
+            const ids = new Set(args.card_ids.map((x) => this.asInt(x)).filter((x) => x !== null));
+            const hand = this.handStock.getCards();
+            for (const card of hand) {
+                if (ids.has(card.id)) {
+                    this.handStock.removeCard(card);
+                }
+            }
+            this.syncHandToGamedata();
+        }
+        if (playerId !== null) {
+            const p = this.gamedatas.players?.[playerId];
+            if (p) {
+                const discounted = Array.isArray(args.card_ids)
+                    ? args.card_ids.length
+                    : 0;
+                const cur = Number(p.handCount ?? 0);
+                p.handCount = Math.max(0, cur - discounted);
+                this.updatePlayerCardCount(playerId);
+            }
+        }
+    }
+    async notif_turnEnded(_args) {
+        // No-op
+    }
+    async notif_emptyHandDraw(args) {
+        const dc = this.asInt(args.deckCount);
+        if (dc !== null) {
+            this.setDeckCount(dc);
+        }
+        else {
+            this.decDeckCount(3);
+        }
+        const playerId = this.asInt(args.player_id);
+        if (playerId !== null) {
+            const p = this.gamedatas.players?.[playerId];
+            if (p) {
+                p.handCount = 3;
+                this.updatePlayerCardCount(playerId);
+            }
+        }
+    }
+    async notif_discardAndDraw(args) {
+        const dc = this.asInt(args.deckCount);
+        if (dc !== null) {
+            this.setDeckCount(dc);
+        }
+        else {
+            this.decDeckCount(3);
+        }
+        const playerId = this.asInt(args.player_id);
+        if (playerId !== null) {
+            const p = this.gamedatas.players?.[playerId];
+            if (p) {
+                p.handCount = 3;
+                this.updatePlayerCardCount(playerId);
+            }
+        }
+    }
+    async notif_deckReshuffled(_args) {
+        this.setDeckCount(this.gamedatas.deckCount || 0);
+    }
+    async notif_getOffThePony(args) {
+        const playerId = this.asInt(args.player_id);
+        const dc = this.asInt(args.deckCount);
+        if (dc !== null)
+            this.setDeckCount(dc);
+        if (playerId !== null && playerId !== this.myPlayerId()) {
+            const p = this.gamedatas.players?.[playerId];
+            if (p) {
+                const cur = Number(p.handCount ?? 0);
+                p.handCount = cur + 2;
+                this.updatePlayerCardCount(playerId);
+            }
+        }
+    }
+    async notif_lendMeABuck(args) {
+        const cardId = this.asInt(args.card_id);
+        const targetPlayerId = this.asInt(args.target_player_id);
+        const playerId = this.asInt(args.player_id);
+        if (targetPlayerId === this.myPlayerId() && cardId !== null) {
+            this.removeCardFromHand(cardId);
+        }
+        if (playerId === this.myPlayerId() && cardId !== null) {
+            const type = args.card_type;
+            const typeArg = this.asInt(args.card_type_arg);
+            if (type && typeArg !== null) {
+                this.addCardToHand({ id: cardId, type, type_arg: typeArg });
+            }
+            else {
+                const cached = this.getRevealedCardFromCache(cardId);
+                if (cached)
+                    this.addCardToHand(cached);
+            }
+        }
+        this.adjustCardCountForSteal(targetPlayerId, playerId);
+    }
+    async notif_popePotato(args) {
+        const cardId = this.asInt(args.card_id);
+        const targetPlayerId = this.asInt(args.target_player_id);
+        const playerId = this.asInt(args.player_id);
+        if (targetPlayerId === this.myPlayerId() && cardId !== null) {
+            this.removeCardFromHand(cardId);
+        }
+        if (playerId === this.myPlayerId() && cardId !== null) {
+            const type = args.card_type;
+            const typeArg = this.asInt(args.card_type_arg);
+            if (type && typeArg !== null) {
+                this.addCardToHand({ id: cardId, type, type_arg: typeArg });
+            }
+            else {
+                const cached = this.getRevealedCardFromCache(cardId);
+                if (cached)
+                    this.addCardToHand(cached);
+            }
+        }
+        this.adjustCardCountForSteal(targetPlayerId, playerId);
+    }
+    async notif_popePotatoFail(_args) {
+        // No-op
+    }
+    async notif_potatoDawan(args) {
+        const cardId = this.asInt(args.card_id);
+        const targetPlayerId = this.asInt(args.target_player_id);
+        const playerId = this.asInt(args.player_id);
+        if (targetPlayerId === this.myPlayerId() && cardId !== null) {
+            this.removeCardFromHand(cardId);
+        }
+        if (playerId === this.myPlayerId() && cardId !== null) {
+            const type = args.card_type;
+            const typeArg = this.asInt(args.card_type_arg);
+            if (type && typeArg !== null) {
+                this.addCardToHand({ id: cardId, type, type_arg: typeArg });
+            }
+            else {
+                const cached = this.getRevealedCardFromCache(cardId);
+                if (cached)
+                    this.addCardToHand(cached);
+            }
+        }
+        this.adjustCardCountForSteal(targetPlayerId, playerId);
+    }
+    async notif_lookAhead(args) {
+        const targetPlayerId = this.asInt(args.target_player_id);
+        if (targetPlayerId !== null) {
+            this.applyGoldenPotatoesDelta(targetPlayerId, -1);
+        }
+    }
+    async notif_potatoOfTheYear(args) {
+        const playerId = this.asInt(args.player_id);
+        if (playerId !== null) {
+            this.applyGoldenPotatoesDelta(playerId, 1);
+        }
+    }
+    async notif_potatoOfDestiny(args) {
+        const dc = this.asInt(args.deckCount);
+        if (dc !== null)
+            this.setDeckCount(dc);
+        const targetPlayerId = this.asInt(args.target_player_id);
+        if (targetPlayerId !== null) {
+            const p = this.gamedatas.players?.[targetPlayerId];
+            if (p) {
+                p.handCount = 2;
+                this.updatePlayerCardCount(targetPlayerId);
+            }
+        }
+    }
+    async notif_harryPotato(args) {
+        const dc = this.asInt(args.deckCount);
+        if (dc !== null)
+            this.setDeckCount(dc);
+        const playerId = this.asInt(args.player_id);
+        if (playerId !== null && playerId !== this.myPlayerId()) {
+            const p = this.gamedatas.players?.[playerId];
+            if (p) {
+                const cur = Number(p.handCount ?? 0);
+                p.handCount = cur + 2;
+                this.updatePlayerCardCount(playerId);
+            }
+        }
+    }
+    async notif_runawayPotatoes(_args) {
+        // No-op: deck count updated via handUpdated
+    }
+    async notif_spiderPotato(args) {
+        const p1 = this.asInt(args.player1_id);
+        const p2 = this.asInt(args.player2_id);
+        if (p1 === null || p2 === null)
+            return;
+        const p1New = this.asInt(args.player1_handCount);
+        const p2New = this.asInt(args.player2_handCount);
+        if (p1New !== null && p2New !== null) {
+            this.gamedatas.players[p1].handCount = p1New;
+            this.gamedatas.players[p2].handCount = p2New;
+        }
+        else {
+            const c1 = Number(this.gamedatas.players[p1]?.handCount ?? 0);
+            const c2 = Number(this.gamedatas.players[p2]?.handCount ?? 0);
+            this.gamedatas.players[p1].handCount = c2;
+            this.gamedatas.players[p2].handCount = c1;
+        }
+        this.updatePlayerCardCount(p1);
+        this.updatePlayerCardCount(p2);
+    }
+    async notif_cardSelected(args) {
+        const cardId = this.asInt(args.card_id);
+        const typeArg = this.asInt(args.card_type_arg);
+        if (cardId !== null &&
+            typeof args.card_type === "string" &&
+            typeArg !== null) {
+            this.cacheRevealedCard({
+                id: cardId,
+                type: args.card_type,
+                type_arg: typeArg,
+            });
+        }
+    }
+    async notif_cardNameSelected(_args) {
+        // No-op
+    }
+    async notif_jumpToTheSide(args) {
+        const dc = this.asInt(args.deckCount);
+        if (dc !== null)
+            this.setDeckCount(dc);
+    }
+    async notif_papageddonOrder(_args) {
+        // No-op
+    }
+    async notif_papageddonSteal(args) {
+        const cardId = this.asInt(args.card_id);
+        const targetPlayerId = this.asInt(args.target_player_id);
+        const playerId = this.asInt(args.player_id);
+        if (targetPlayerId === this.myPlayerId() && cardId !== null) {
+            this.removeCardFromHand(cardId);
+        }
+        this.adjustCardCountForSteal(targetPlayerId, playerId);
+    }
+    async notif_papageddonStealPrivate(args) {
+        const cardId = this.asInt(args.card_id);
+        const playerId = this.asInt(args.player_id);
+        if (playerId !== this.myPlayerId() || cardId === null)
+            return;
+        const type = args.card_type;
+        const typeArg = this.asInt(args.card_type_arg);
+        if (type && typeArg !== null) {
+            this.addCardToHand({ id: cardId, type, type_arg: typeArg });
+        }
+    }
+    adjustCardCountForSteal(targetPlayerId, playerId) {
+        if (targetPlayerId !== null) {
+            const p = this.gamedatas.players?.[targetPlayerId];
+            if (p) {
+                const cur = Number(p.handCount ?? 0);
+                p.handCount = Math.max(0, cur - 1);
+                this.updatePlayerCardCount(targetPlayerId);
+            }
+        }
+        if (playerId !== null && playerId !== targetPlayerId) {
+            const p = this.gamedatas.players?.[playerId];
+            if (p) {
+                const cur = Number(p.handCount ?? 0);
+                p.handCount = cur + 1;
+                this.updatePlayerCardCount(playerId);
+            }
         }
     }
 }
 
-/*
- *------
- * BGA framework: Gregory Isabelli & Emmanuel Colin & BoardGameArena
- * DondeLasPapasQueman implementation : © tikoflano
- *
- * This code has been produced on the BGA studio platform for use on http://boardgamearena.com.
- * See http://en.boardgamearena.com/#!doc/Studio for more information.
- * -----
- */
+const BgaAnimations = await importEsmLib("bga-animations", "1.x");
+const BgaCards = await importEsmLib("bga-cards", "1.x");
+Game.setBgaLibs(BgaAnimations, BgaCards);
 
 export { Game };
