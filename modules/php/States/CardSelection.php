@@ -149,6 +149,12 @@ class CardSelection extends GameState {
             }
         }
 
+        // Shuffle so the attacking player cannot infer hand order.
+        shuffle($cardBacks);
+        if ($revealCards) {
+            shuffle($revealedCards);
+        }
+
         $result = [
             "targetPlayerId" => $targetPlayerId,
             "targetPlayerName" => $this->game->getPlayerNameById($targetPlayerId),
