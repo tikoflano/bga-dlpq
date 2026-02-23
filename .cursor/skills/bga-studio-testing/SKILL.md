@@ -1,6 +1,6 @@
 ---
 name: bga-studio-testing
-description: Uses Chrome DevTools MCP (NOT cursor-ide-browser) to open Chrome, navigate to BGA Studio, and launch or test a board game. Use chrome-devtools-navigate_page, chrome-devtools-take_snapshot, chrome-devtools-click, chrome-devtools-evaluate_script. Do NOT use browser_* tools or xdg-open. Use when the user wants to test the game in BGA Studio, run the game in a browser, verify UI changes, or launch a new game session.
+description: Uses Chrome DevTools MCP (NOT cursor-ide-browser) to open Chrome, navigate to BGA Studio, launch games, open each player's view in a separate tab, read game state from status bar/gamedatas, and switch to the active player's tab to perform actions. Use chrome-devtools-navigate_page, take_snapshot, click, evaluate_script, new_page, select_page. Do NOT use browser_* tools or xdg-open. Use when testing BGA Studio games, verifying UI, or running multi-player test flows.
 ---
 
 # BGA Studio Testing
@@ -57,6 +57,100 @@ The game panel URL already shows the correct page. From there:
 
 - Call `chrome-devtools-take_snapshot` to confirm the game loaded
 - If CSS/SCSS was changed: find and click **Reload CSS** in the debug panel (left side) using `chrome-devtools-take_snapshot` to get its `uid`, then `chrome-devtools-click`
+
+### 4. Open Each Player's View in a Separate Tab
+
+After the game loads, open one tab per player so you can switch to the active player's view when testing:
+
+1. Get the current table URL with `chrome-devtools-evaluate_script`:
+   ```javascript
+   () => window.location.href
+   ```
+2. Get player IDs from the game: use `chrome-devtools-evaluate_script` with `() => (typeof game !== 'undefined' ? game : window.game)?.gamedatas?.playerorder || []` to get the list (e.g. `[12345, 12346]`).
+3. For each player ID, open a new tab with `chrome-devtools-new_page`:
+   - URL: append `&testuser=` + player ID to the current URL (e.g. `...&testuser=12345`)
+   - For hash URLs like `#!table?table=12345`, append inside the hash: `#!table?table=12345&testuser=12345`
+   - BGA Studio uses `testuser` to view the table as that player ([docs](https://en.doc.boardgamearena.com/Tools_and_tips_of_BGA_Studio#Switching_between_users))
+4. Use `chrome-devtools-list_pages` to get each tab's `pageId` and URL; the URL's `testuser` param identifies the player (e.g. `testuser=12345` → that player's view)
+
+### 5. Testing: Read Game State and Switch to Active Player's Tab
+
+When testing the game, determine whose turn it is and perform actions in that player's tab:
+
+1. **Read game state** from any tab showing the game. Use `chrome-devtools-evaluate_script`:
+   ```javascript
+   () => {
+     const g = typeof game !== 'undefined' ? game : (window.game || window['game']);
+     if (!g?.gamedatas?.gamestate) return null;
+     const gs = g.gamedatas.gamestate;
+     return {
+       stateName: gs.name,
+       activePlayer: gs.active_player,
+       activePlayers: gs.args?.active_players || (gs.active_player ? [gs.active_player] : []),
+       playerorder: g.gamedatas?.playerorder || []
+     };
+   }
+   ```
+   - `activePlayer`: single active player (ACTIVE_PLAYER states like PlayerTurn, DiscardPhase)
+   - `activePlayers`: for MULTIPLE_ACTIVE_PLAYER states (e.g. ReactionPhase)
+
+2. **Alternative: read from status bar** — The status bar shows text like "Player X must play" or "Your turn". Use `chrome-devtools-take_snapshot` and look for the status bar section; parse the text to identify the active player name, then map it to a player ID via `gamedatas.players`.
+
+3. **Switch to the active player's tab** — Use `chrome-devtools-select_page` with the `pageId` of the tab that has `testuser=<active_player_id>`.
+
+4. **Perform actions** — In that tab, take a snapshot, find the action buttons (e.g. "End Turn", "Discard and Draw 3", "Confirm Selection"), and use `chrome-devtools-click` with the button's `uid`.
+
+5. **Repeat** — After each action, the game state may change. Re-read the game state and switch to the new active player's tab before the next action.
+
+## Error Monitoring
+
+**CRITICAL: Always check for errors after every action and report them to the user immediately.** Errors can block game progression (e.g. stuck in a state) and indicate bugs that need fixing.
+
+### Where Errors Appear
+
+Errors show up in the **game log area** on the sidebar, mixed in with normal game log entries. They appear as red text or with the prefix "Unexpected error:". Example:
+
+```
+Unexpected error: The counter value cannot be under 0 (player counter: golden_potatoes, value: -1, min: 0) (reference: GS1 14/02 00:41:48)
+```
+
+### How to Check for Errors
+
+After each action (playing a card, skipping reaction, selecting target, etc.), check for errors using `chrome-devtools-evaluate_script`:
+
+```javascript
+() => {
+  // Check for error text in the game log area
+  const logEl = document.getElementById('logs');
+  if (!logEl) return { errors: [] };
+  const errorEls = logEl.querySelectorAll('.log_replayable, .roundedbox');
+  const errors = [];
+  errorEls.forEach(el => {
+    const text = el.textContent?.trim() || '';
+    if (text.toLowerCase().includes('unexpected error') || text.toLowerCase().includes('error:')) {
+      errors.push(text);
+    }
+  });
+  return { errors };
+}
+```
+
+Alternatively, look for error text in the `chrome-devtools-take_snapshot` output — error messages appear as `StaticText` nodes containing "Unexpected error" or "error:".
+
+### What to Do When Errors Are Found
+
+1. **Stop playing** — Do not continue performing game actions when errors are present. The game may be in a broken state.
+2. **Report the error immediately** — Tell the user the exact error message, which action triggered it, and the current game state (state name, active player, what was attempted).
+3. **Discuss with the user** — The error likely indicates a bug in the game code. Wait for the user to decide whether to:
+   - Investigate and fix the bug in the codebase
+   - Reload and retry
+   - Start a new game after fixing
+
+### Common Error Patterns
+
+- **Counter errors** (e.g. "counter value cannot be under 0") — Usually a bug in state transition logic where a counter is decremented incorrectly.
+- **State transition errors** — The game gets stuck in a state (e.g. ReactionPhase) because a server-side error prevented the transition.
+- **Missing argument errors** — An action was called without required parameters.
 
 ## Build Before Testing
 
