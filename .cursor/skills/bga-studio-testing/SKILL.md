@@ -1,6 +1,6 @@
 ---
 name: bga-studio-testing
-description: Uses Chrome DevTools MCP (NOT cursor-ide-browser) to open Chrome, navigate to BGA Studio, launch games, open each player's view in a separate tab, read game state from status bar/gamedatas, and switch to the active player's tab to perform actions. Use chrome-devtools-navigate_page, take_snapshot, click, evaluate_script, new_page, select_page. Do NOT use browser_* tools or xdg-open. Use when testing BGA Studio games, verifying UI, or running multi-player test flows.
+description: Uses Chrome DevTools MCP (NOT cursor-ide-browser) to open Chrome, navigate to BGA Studio, launch games, open each player's view in a separate tab, read game state from status bar/gamedatas, switch to the active player's tab to perform actions, and save/restore game state for iterative debugging of card resolution and action handling. Use chrome-devtools-navigate_page, take_snapshot, click, evaluate_script, new_page, select_page. Do NOT use browser_* tools or xdg-open. Use when testing BGA Studio games, verifying UI, debugging card effects, or running multi-player test flows.
 ---
 
 # BGA Studio Testing
@@ -156,9 +156,95 @@ Alternatively, look for error text in the `chrome-devtools-take_snapshot` output
 
 If TypeScript or SCSS was modified, run `npm run build` before testing. The game loads compiled `Game.js` and `dondelaspapasqueman.css` from the server.
 
-## Save & Restore (Future Extension)
+## Save & Restore Game State
 
-BGA Studio provides 3 save slots at the bottom of the game area. See [reference.md](reference.md) for save/restore workflow details to implement in a future skill extension.
+BGA Studio provides **3 save slots** and a **Load Previous State** button at the bottom of the game area. Use these to snapshot the game at a specific point, then restore it after testing — essential for iterating on card resolution logic and action handling.
+
+### When to Use Save/Restore
+
+**Proactively save state** in these scenarios:
+- **Before testing card resolution changes** — Save right before playing the card being debugged, so you can fix code and reload to the same point without replaying the entire game.
+- **Before complex action sequences** — If the test requires multiple steps (play card → reaction phase → discard → etc.), save before the first step so the full sequence can be retried.
+- **When the user asks to test a specific interaction** — Save at the point where the interaction is about to happen.
+- **Before risky actions** — If unsure whether a code change works, save first so recovery is instant.
+
+### Save/Restore UI Elements
+
+The debug panel at the bottom of the game area contains paired save/load buttons for 3 slots, plus a special "Load Previous State" button:
+
+| Element | Selector | CSS Classes | Purpose |
+|---------|----------|-------------|---------|
+| SAVE 1 | `#debug_save1` | `debug_save bgabutton bgabutton_gray` | Save to slot 1 |
+| LOAD 1 | `#debug_load1` | `debug_load bgabutton bgabutton_blue` | Load from slot 1 |
+| SAVE 2 | `#debug_save2` | `debug_save bgabutton bgabutton_gray` | Save to slot 2 |
+| LOAD 2 | `#debug_load2` | `debug_load bgabutton bgabutton_blue` | Load from slot 2 |
+| SAVE 3 | `#debug_save3` | `debug_save bgabutton bgabutton_gray` | Save to slot 3 |
+| LOAD 3 | `#debug_load3` | `debug_load bgabutton bgabutton_blue` | Load from slot 3 |
+| LOAD PREVIOUS STATE | `#debug_load4` | `debug_load bgabutton bgabutton_blue` | Undo to previous server-side state |
+
+### How to Save
+
+Click the save button using `chrome-devtools-evaluate_script`:
+
+```javascript
+() => {
+  const btn = document.getElementById('debug_save1');
+  if (btn) btn.click();
+  return 'Saved to slot 1';
+}
+```
+
+Replace `debug_save1` with `debug_save2` or `debug_save3` for other slots.
+
+After clicking, wait briefly for the server to confirm. The save is server-side, so it persists even if you reload the page.
+
+### How to Load/Restore
+
+Click the load button using `chrome-devtools-evaluate_script`:
+
+```javascript
+() => {
+  const btn = document.getElementById('debug_load1');
+  if (btn) btn.click();
+  return 'Loading slot 1';
+}
+```
+
+Replace `debug_load1` with `debug_load2` or `debug_load3` for other slots.
+
+**After loading**, the page will reload to restore the game state. You must:
+1. Wait for the page to finish reloading — use `chrome-devtools-wait_for` with text that appears in the game (e.g. a player name, or "Your turn")
+2. **Do this for ALL player tabs** — Each tab must be reloaded to reflect the restored state. Either:
+   - Navigate each tab to its URL again using `chrome-devtools-navigate_page`, or
+   - Reload each tab using `chrome-devtools-evaluate_script` with `() => { location.reload(); }` after selecting it
+3. Re-read the game state to confirm the restore worked
+
+### Load Previous State
+
+`#debug_load4` ("LOAD PREVIOUS STATE") rolls back to the previous server-side game state (one step back). Useful for quick undo of the last action without needing a save slot.
+
+### Recommended Save/Restore Workflow for Debugging Card Resolution
+
+When the user is debugging how a specific card or action resolves:
+
+1. **Play the game** until reaching the point just before the action/card in question
+2. **Save to slot 1**: click `#debug_save1`
+3. **Perform the action** (play the card, trigger the effect, etc.)
+4. **Check results** — Read game state, check counters, check for errors
+5. **If there's a bug**:
+   a. Report the error/unexpected behavior to the user
+   b. The user fixes the code and runs `npm run build`
+   c. **Load from slot 1**: click `#debug_load1` to restore back to the pre-action state
+   d. Wait for reload, refresh all player tabs
+   e. **Reload CSS** if SCSS changed (click `#bga-reload-css`)
+   f. **Retry the action** to verify the fix
+6. **Repeat** steps 3-5 until the behavior is correct
+
+### Slot Usage Convention
+
+- **Slot 1** — Primary save point: the state you keep restoring to during active debugging
+- **Slot 2** — Secondary checkpoint: a further-back point in case you need to replay more context
+- **Slot 3** — Spare slot for ad-hoc saves
 
 ## Key URLs
 
