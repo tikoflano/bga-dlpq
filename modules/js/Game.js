@@ -224,6 +224,8 @@ class Game {
         BgaCards$1 = cards;
     }
     constructor(bga) {
+        this.opponentHandStocks = new Map();
+        this.goldenPotatoStocks = new Map();
         // ReactionPhase double-send guard
         this.reactionActionSent = false;
         // TargetSelection state
@@ -247,18 +249,26 @@ class Game {
     getGamedatas() {
         return this.gamedatas;
     }
-    setup(gamedatas) {
+    async setup(gamedatas) {
         console.log("Starting game setup", gamedatas);
         this.gamedatas = gamedatas;
         this.bga.gameArea.getElement().insertAdjacentHTML("beforeend", `
       <div id="dlpq-table">
+        <div id="dlpq-opponents-hands"></div>
         <div id="dlpq-common-area">
           <div id="dlpq-deck"></div>
           <div id="dlpq-discard"></div>
+          <div id="dlpq-golden-potato-pile-wrap">
+            <div id="dlpq-golden-potato-pile"></div>
+          </div>
         </div>
         <div id="dlpq-hand-wrap" class="whiteblock">
-          <b>${_("My hand")}</b>
-          <div id="dlpq-hand"></div>
+          <div class="dlpq-hand-row">
+            <div class="dlpq-hand-section">
+              <div id="dlpq-hand"></div>
+            </div>
+            <div class="dlpq-golden-potato-section" id="dlpq-my-golden-potato-section"></div>
+          </div>
         </div>
       </div>
       `);
@@ -266,6 +276,8 @@ class Game {
         this.initHandStock(gamedatas.hand || []);
         this.initDrawDeck(gamedatas.deckCount || 0);
         this.initDiscardPile(gamedatas.discardPileCards || []);
+        this.initGoldenPotatoPile();
+        await this.initOpponentHands();
         this.setupPlayerPanelCounters();
         this.setupNotifications();
         console.log("Ending game setup");
@@ -295,6 +307,15 @@ class Game {
             setupFrontDiv: (card, div) => {
                 if (!card.type)
                     return;
+                if (card.type === "golden_potato") {
+                    div.dataset.cardType = "golden_potato";
+                    div.innerHTML = `
+            <div class="dlpq-golden-potato-label">${_("Golden potato")}</div>
+            <div class="dlpq-golden-potato-icon">\u{1F954}</div>
+          `;
+                    this.bga.gameui.addTooltipHtml(div.id, _("Golden potato"));
+                    return;
+                }
                 const decoded = decodeCardTypeArg(card.type_arg || 0);
                 const name = getCardName(card);
                 const value = getCardValue(card);
@@ -307,7 +328,17 @@ class Game {
         `;
                 this.bga.gameui.addTooltipHtml(div.id, getCardTooltipHtml(card));
             },
-            setupBackDiv: (_card, div) => {
+            setupBackDiv: (card, div) => {
+                if (card.type === "golden_potato") {
+                    div.dataset.cardType = "golden_potato";
+                    div.classList.add("dlpq-golden-potato-back");
+                    div.innerHTML = `
+            <div class="dlpq-golden-potato-label">${_("Golden potato")}</div>
+            <div class="dlpq-golden-potato-back-icons">\u{1F954}\u{1F954}</div>
+          `;
+                    this.bga.gameui.addTooltipHtml(div.id, _("Golden potato"));
+                    return;
+                }
                 div.innerHTML = "";
             },
             fakeCardGenerator: (deckId) => ({ id: `${deckId}-fake-top` }),
@@ -352,6 +383,121 @@ class Game {
                 }
             });
         }
+    }
+    initGoldenPotatoPile() {
+        const pileEl = document.getElementById("dlpq-golden-potato-pile");
+        this.goldenPotatoPile = new BgaCards$1.Deck(this.cardsManager, pileEl, {
+            counter: { show: true, position: "bottom", extraClasses: "round" },
+            fakeCardGenerator: (deckId) => ({ id: `${deckId}-fake-top`, type: "golden_potato" }),
+        });
+        const playerCount = Object.keys(this.gamedatas.players || {}).length;
+        const maxPerPlayer = playerCount <= 3 ? 8 : playerCount <= 5 ? 6 : 5;
+        const totalNeeded = maxPerPlayer * playerCount + 10;
+        const pileCards = [];
+        for (let i = 0; i < totalNeeded; i++) {
+            pileCards.push({
+                id: 900000 + i,
+                type: "golden_potato",
+            });
+        }
+        this.goldenPotatoPile.addCards(pileCards);
+    }
+    returnGoldenPotatoToPile(card) {
+        this.goldenPotatoPile.addCard(card);
+    }
+    async initOpponentHands() {
+        const container = document.getElementById("dlpq-opponents-hands");
+        const myId = this.myPlayerId();
+        const playerorder = this.gamedatas.playerorder;
+        const playerIds = playerorder
+            ? playerorder.map((p) => Number(p)).filter((id) => id > 0 && id !== myId)
+            : Object.keys(this.gamedatas.players || {})
+                .map(Number)
+                .filter((id) => id !== myId);
+        for (const playerId of playerIds) {
+            const player = this.gamedatas.players?.[playerId];
+            if (!player)
+                continue;
+            const name = player.name ?? "";
+            const color = player.color ?? "";
+            const handCount = Number(player.handCount ?? 0);
+            const area = document.createElement("div");
+            area.className = "dlpq-opponent-hand-area whiteblock";
+            area.dataset.playerId = String(playerId);
+            if (color) {
+                area.style.borderLeftColor = `#${color}`;
+                area.style.borderLeftWidth = "4px";
+                area.style.borderLeftStyle = "solid";
+            }
+            const nameStyle = color ? ` style="color: #${color}"` : "";
+            area.innerHTML = `
+        <span class="dlpq-opponent-name"${nameStyle}>${this.escapeHtml(name)}</span>
+        <div class="dlpq-opponent-hand-row">
+          <div class="dlpq-opponent-hand-cards" id="dlpq-opponent-hand-${playerId}"></div>
+          <div class="dlpq-golden-potato-cards" id="dlpq-golden-potatoes-${playerId}">
+            <div class="dlpq-golden-potato-empty"></div>
+          </div>
+        </div>
+      `;
+            container.appendChild(area);
+            const cardsEl = document.getElementById(`dlpq-opponent-hand-${playerId}`);
+            const stock = new BgaCards$1.LineStock(this.cardsManager, cardsEl, {
+                direction: "row",
+                gap: "0",
+            });
+            this.opponentHandStocks.set(playerId, stock);
+            const fakeCards = [];
+            for (let i = 0; i < handCount; i++) {
+                fakeCards.push({
+                    id: -(playerId * 10000 + i),
+                });
+            }
+            if (fakeCards.length > 0) {
+                stock.addCards(fakeCards);
+            }
+            const goldenPotatoEl = document.getElementById(`dlpq-golden-potatoes-${playerId}`);
+            const gpStock = new BgaCards$1.LineStock(this.cardsManager, goldenPotatoEl, {
+                direction: "row",
+                gap: "0",
+            });
+            this.goldenPotatoStocks.set(playerId, gpStock);
+            const gpCount = Number(player.golden_potatoes ?? player.score ?? 0);
+            for (let i = 0; i < gpCount; i++) {
+                const card = this.goldenPotatoPile.getTopCard();
+                if (card)
+                    await gpStock.addCard(card, { fromStock: this.goldenPotatoPile });
+            }
+            this.setGoldenPotatoEmptyState(playerId, gpCount === 0);
+        }
+        await this.initMyGoldenPotatoStock();
+    }
+    async initMyGoldenPotatoStock() {
+        const myId = this.myPlayerId();
+        const gpSection = document.getElementById("dlpq-my-golden-potato-section");
+        gpSection.innerHTML = `
+      <div class="dlpq-golden-potato-cards" id="dlpq-golden-potatoes-${myId}">
+        <div class="dlpq-golden-potato-empty"></div>
+      </div>
+    `;
+        const goldenPotatoEl = document.getElementById(`dlpq-golden-potatoes-${myId}`);
+        const gpStock = new BgaCards$1.LineStock(this.cardsManager, goldenPotatoEl, {
+            direction: "row",
+            gap: "0",
+        });
+        this.goldenPotatoStocks.set(myId, gpStock);
+        const player = this.gamedatas.players?.[myId];
+        const gpCount = Number(player?.golden_potatoes ?? player?.score ?? 0);
+        for (let i = 0; i < gpCount; i++) {
+            const card = this.goldenPotatoPile.getTopCard();
+            if (card)
+                await gpStock.addCard(card, { fromStock: this.goldenPotatoPile });
+        }
+        this.setGoldenPotatoEmptyState(myId, gpCount === 0);
+    }
+    escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
     }
     applyDeterministicTransform(card) {
         const el = this.cardsManager.getCardElement(card);
@@ -481,8 +627,35 @@ class Game {
         if (counterEl) {
             counterEl.classList.toggle("over-limit", handCount > 7);
         }
+        if (playerId !== this.myPlayerId()) {
+            this.updateOpponentHandDisplay(playerId);
+        }
     }
-    applyGoldenPotatoesDelta(playerId, delta) {
+    updateOpponentHandDisplay(playerId) {
+        const stock = this.opponentHandStocks.get(playerId);
+        if (!stock)
+            return;
+        const handCount = Number(this.gamedatas.players?.[playerId]?.handCount ?? 0);
+        const currentCards = stock.getCards();
+        const currentCount = currentCards.length;
+        if (currentCount < handCount) {
+            const toAdd = handCount - currentCount;
+            for (let i = 0; i < toAdd; i++) {
+                const fakeCard = {
+                    id: -(playerId * 10000 + currentCount + i),
+                };
+                stock.addCard(fakeCard);
+            }
+        }
+        else if (currentCount > handCount) {
+            const toRemove = currentCount - handCount;
+            const cardsToRemove = currentCards.slice(-toRemove);
+            for (const card of cardsToRemove) {
+                stock.removeCard(card);
+            }
+        }
+    }
+    async applyGoldenPotatoesDelta(playerId, delta) {
         const p = this.gamedatas.players?.[playerId];
         if (!p)
             return;
@@ -491,6 +664,43 @@ class Game {
         p.golden_potatoes = next;
         p.score = next;
         this.updatePlayerPanelCounter(playerId);
+        await this.updateGoldenPotatoDisplay(playerId);
+    }
+    async updateGoldenPotatoDisplay(playerId) {
+        const stock = this.goldenPotatoStocks.get(playerId);
+        if (!stock)
+            return;
+        const gpCount = Number(this.gamedatas.players?.[playerId]?.golden_potatoes ??
+            this.gamedatas.players?.[playerId]?.score ??
+            0);
+        const currentCards = stock.getCards();
+        const currentCount = currentCards.length;
+        if (currentCount < gpCount) {
+            // Hide placeholder before adding so the card animates to the correct position
+            this.setGoldenPotatoEmptyState(playerId, false);
+            const toAdd = gpCount - currentCount;
+            for (let i = 0; i < toAdd; i++) {
+                const card = this.goldenPotatoPile.getTopCard();
+                if (card) {
+                    await stock.addCard(card, { fromStock: this.goldenPotatoPile });
+                }
+            }
+        }
+        else if (currentCount > gpCount) {
+            const toRemove = currentCount - gpCount;
+            const cardsToRemove = currentCards.slice(-toRemove);
+            for (const card of cardsToRemove) {
+                stock.removeCard(card);
+                this.returnGoldenPotatoToPile(card);
+            }
+        }
+        this.setGoldenPotatoEmptyState(playerId, gpCount === 0);
+    }
+    setGoldenPotatoEmptyState(playerId, isEmpty) {
+        const container = document.getElementById(`dlpq-golden-potatoes-${playerId}`);
+        if (!container)
+            return;
+        container.classList.toggle("empty", isEmpty);
     }
     getWinThreshold() {
         if (this.gamedatas.winThreshold !== undefined) {
@@ -1010,14 +1220,14 @@ class Game {
         const playerId = this.asInt(args.player_id);
         const delta = this.asInt(args.golden_potatoes) ?? 0;
         if (playerId !== null && delta !== 0) {
-            this.applyGoldenPotatoesDelta(playerId, delta);
+            await this.applyGoldenPotatoesDelta(playerId, delta);
         }
     }
     async notif_threesomeScored(args) {
         const playerId = this.asInt(args.player_id);
         const delta = this.asInt(args.golden_potatoes) ?? 0;
         if (playerId !== null && delta !== 0) {
-            this.applyGoldenPotatoesDelta(playerId, delta);
+            await this.applyGoldenPotatoesDelta(playerId, delta);
         }
     }
     async notif_cardMovedToDiscard(args) {
@@ -1237,13 +1447,13 @@ class Game {
     async notif_lookAhead(args) {
         const targetPlayerId = this.asInt(args.target_player_id);
         if (targetPlayerId !== null) {
-            this.applyGoldenPotatoesDelta(targetPlayerId, -1);
+            await this.applyGoldenPotatoesDelta(targetPlayerId, -1);
         }
     }
     async notif_potatoOfTheYear(args) {
         const playerId = this.asInt(args.player_id);
         if (playerId !== null) {
-            this.applyGoldenPotatoesDelta(playerId, 1);
+            await this.applyGoldenPotatoesDelta(playerId, 1);
         }
     }
     async notif_potatoOfDestiny(args) {
