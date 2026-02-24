@@ -242,7 +242,7 @@ class Game {
         // ========================================================================
         //  CardSelection state (Pope Potato / Potato Dawan pick-a-card)
         // ========================================================================
-        this.cardSelectionDialog = null;
+        this.cardSelectionState = null;
         console.log("dondelaspapasqueman constructor");
         this.bga = bga;
     }
@@ -280,6 +280,13 @@ class Game {
         await this.initOpponentHands();
         this.setupPlayerPanelCounters();
         this.setupNotifications();
+        // Re-enter current state after setup (critical for reload: framework may call onEnteringState before setup completes)
+        const gamestate = this.gamedatas.gamestate;
+        if (gamestate?.name) {
+            setTimeout(() => {
+                this.onEnteringState(gamestate.name, gamestate);
+            }, 100);
+        }
         console.log("Ending game setup");
     }
     // ========================================================================
@@ -535,6 +542,41 @@ class Game {
     }
     addCardToHand(card) {
         this.handStock.addCard(card);
+        this.syncHandToGamedata();
+    }
+    /**
+     * Adds a card to hand with animation from the draw deck.
+     */
+    async addCardToHandWithDrawAnimation(card) {
+        await this.handStock.addCard(card, {
+            fromElement: this.drawDeck.element,
+        });
+        this.syncHandToGamedata();
+    }
+    /**
+     * Adds a card to hand with animation from the target's hand (for steal effects).
+     * When target is another player, animates from their opponent hand stock.
+     */
+    async addCardToHandWithStealAnimation(card, targetPlayerId) {
+        if (targetPlayerId === null || targetPlayerId === this.myPlayerId()) {
+            this.addCardToHand(card);
+            return;
+        }
+        const opponentStock = this.opponentHandStocks.get(targetPlayerId);
+        if (!opponentStock) {
+            this.addCardToHand(card);
+            return;
+        }
+        const cards = opponentStock.getCards();
+        if (cards.length === 0) {
+            this.addCardToHand(card);
+            return;
+        }
+        // Use a card from the opponent stock as animation source (real or fake card back)
+        const sourceCard = cards.find((c) => Number(c.id) === Number(card.id)) ?? cards[0];
+        const sourceEl = opponentStock.getCardElement(sourceCard);
+        await this.handStock.addCard(card, { fromElement: sourceEl });
+        await opponentStock.removeCard(sourceCard);
         this.syncHandToGamedata();
     }
     replaceHand(cards) {
@@ -793,6 +835,12 @@ class Game {
                 break;
             case "DiscardPhase":
                 this.updateDiscardPhaseButtons(args);
+                break;
+            case "CardSelection":
+                this.updateCardSelectionButtons(args);
+                setTimeout(() => {
+                    this.enterCardSelection(args ?? this.gamedatas.gamestate);
+                }, 0);
                 break;
         }
     }
@@ -1066,75 +1114,138 @@ class Game {
             this.bga.statusBar.removeActionButtons();
         }, { color: "primary", disabled });
     }
-    enterCardSelection(args) {
+    async enterCardSelection(args) {
         if (!this.bga.players.isCurrentPlayerActive())
             return;
         const a = args?.args || args || {};
+        const targetPlayerId = this.asInt(a.targetPlayerId) ?? 0;
         const revealedCards = a.revealedCards || [];
         const cardBacks = a.cardBacks || [];
-        this.showCardSelectionUI(revealedCards, cardBacks, a.targetPlayerName);
+        const tokens = revealedCards.length > 0
+            ? revealedCards.map((rc) => ({ selectToken: rc.selectToken }))
+            : cardBacks.map((cb) => ({ selectToken: cb.selectToken }));
+        if (targetPlayerId === 0 || tokens.length === 0)
+            return;
+        const stock = this.opponentHandStocks.get(targetPlayerId);
+        if (!stock)
+            return;
+        this.hideCardSelectionUI();
+        const area = document.querySelector(`.dlpq-opponent-hand-area[data-player-id="${targetPlayerId}"]`);
+        if (area) {
+            area.classList.add("dlpq-card-selection-target");
+        }
+        let selectionDone = false;
+        const doSelect = (index) => {
+            if (selectionDone)
+                return;
+            const token = tokens[index]?.selectToken;
+            if (token) {
+                selectionDone = true;
+                this.bga.actions.performAction("actSelectCard", { selectToken: token });
+                this.hideCardSelectionUI();
+            }
+        };
+        if (revealedCards.length > 0) {
+            const currentCards = stock.getCards();
+            await stock.removeAll();
+            const cardsToAdd = revealedCards.map((rc) => ({
+                id: rc.card_id ?? rc.id,
+                type: rc.type ?? rc.card_type,
+                type_arg: rc.type_arg ?? rc.card_type_arg,
+            }));
+            await stock.addCards(cardsToAdd);
+            this.cardSelectionState = {
+                targetPlayerId,
+                tokens,
+                restoredFakeCards: currentCards,
+            };
+        }
+        else {
+            const currentCards = stock.getCards();
+            if (currentCards.length !== tokens.length)
+                return;
+            // Do NOT remove/re-add: bga-cards throws "card element exists but is not attached to any Stock"
+            // when re-adding removed cards. Server already shuffles tokens, so client order is fine.
+            this.cardSelectionState = { targetPlayerId, tokens };
+        }
+        const handleCardClick = (index) => {
+            if (index >= 0 && index < tokens.length) {
+                doSelect(index);
+            }
+        };
+        stock.setSelectionMode("single");
+        const cardsContainer = stock.element;
+        const delegatedClick = (e) => {
+            const card = e.target.closest(".bga-cards_card");
+            if (!card || !cardsContainer.contains(card))
+                return;
+            e.preventDefault();
+            e.stopPropagation();
+            const cards = Array.from(cardsContainer.querySelectorAll(".bga-cards_card"));
+            const index = cards.indexOf(card);
+            if (index >= 0)
+                handleCardClick(index);
+        };
+        cardsContainer.addEventListener("click", delegatedClick, true);
+        this._cardSelectionCleanup = () => {
+            stock.setSelectionMode("none");
+            stock.onCardClick = undefined;
+            cardsContainer.removeEventListener("click", delegatedClick, true);
+            this.bga.statusBar.removeActionButtons();
+            this._cardSelectionCleanup = null;
+        };
+    }
+    updateCardSelectionButtons(args) {
+        if (!this.bga.players.isCurrentPlayerActive())
+            return;
+        this.bga.statusBar.removeActionButtons();
+        const a = args?.args || args || {};
+        const revealedCards = a.revealedCards || [];
+        const cardBacks = a.cardBacks || [];
+        const tokens = revealedCards.length > 0
+            ? revealedCards.map((rc) => rc.selectToken)
+            : cardBacks.map((cb) => cb.selectToken);
+        if (tokens.length === 0)
+            return;
+        for (let i = 0; i < tokens.length; i++) {
+            const token = tokens[i];
+            const label = _("Select card") + " " + (i + 1);
+            this.bga.statusBar.addActionButton(label, () => {
+                this.bga.actions.performAction("actSelectCard", { selectToken: token });
+                this.hideCardSelectionUI();
+            });
+        }
     }
     leaveCardSelection() {
         this.hideCardSelectionUI();
     }
-    showCardSelectionUI(revealedCards, cardBacks, targetName) {
-        this.hideCardSelectionUI();
-        const container = document.createElement("div");
-        container.id = "dlpq-card-selection";
-        container.className = "whiteblock";
-        const title = targetName
-            ? _("Select a card from ${player_name}").replace("${player_name}", targetName)
-            : _("Select a card");
-        container.innerHTML = `<b>${title}</b><div id="dlpq-card-selection-cards" style="display:flex;gap:12px;justify-content:center;padding:12px;flex-wrap:wrap;"></div>`;
-        const gameArea = this.bga.gameArea.getElement();
-        gameArea.appendChild(container);
-        const cardsDiv = document.getElementById("dlpq-card-selection-cards");
-        if (revealedCards.length > 0) {
-            for (const rc of revealedCards) {
-                const card = {
-                    id: rc.id ?? rc.card_id,
-                    type: rc.type ?? rc.card_type,
-                    type_arg: rc.type_arg ?? rc.card_type_arg,
-                };
-                const el = this.cardsManager.createCardElement(card, true);
-                el.style.cursor = "pointer";
-                el.addEventListener("click", () => {
-                    this.bga.actions.performAction("actSelectCard", {
-                        selectToken: rc.selectToken,
-                    });
-                    this.hideCardSelectionUI();
-                });
-                cardsDiv.appendChild(el);
-            }
-        }
-        else if (cardBacks.length > 0) {
-            for (const cb of cardBacks) {
-                const backDiv = document.createElement("div");
-                backDiv.className = "dlpq-card-back-selectable";
-                backDiv.style.cssText =
-                    "width:120px;height:168px;background:#8b0000;border:2px solid #000;border-radius:8px;cursor:pointer;";
-                backDiv.addEventListener("mouseenter", () => {
-                    backDiv.style.transform = "translateY(-5px)";
-                    backDiv.style.boxShadow = "0 4px 8px rgba(0,0,0,0.3)";
-                });
-                backDiv.addEventListener("mouseleave", () => {
-                    backDiv.style.transform = "";
-                    backDiv.style.boxShadow = "";
-                });
-                backDiv.addEventListener("click", () => {
-                    this.bga.actions.performAction("actSelectCard", {
-                        selectToken: cb.selectToken,
-                    });
-                    this.hideCardSelectionUI();
-                });
-                cardsDiv.appendChild(backDiv);
-            }
-        }
-    }
     hideCardSelectionUI() {
-        const el = document.getElementById("dlpq-card-selection");
-        if (el)
-            el.remove();
+        const cleanup = this._cardSelectionCleanup;
+        if (typeof cleanup === "function") {
+            cleanup();
+        }
+        const state = this.cardSelectionState;
+        this.cardSelectionState = null;
+        if (state) {
+            const area = document.querySelector(`.dlpq-opponent-hand-area[data-player-id="${state.targetPlayerId}"]`);
+            if (area) {
+                area.classList.remove("dlpq-card-selection-target");
+            }
+            const stock = this.opponentHandStocks.get(state.targetPlayerId);
+            if (stock && state.restoredFakeCards) {
+                stock.removeAll();
+                const handSizeAfterSteal = Math.max(0, state.restoredFakeCards.length - 1);
+                const fakeCards = [];
+                for (let i = 0; i < handSizeAfterSteal; i++) {
+                    fakeCards.push({
+                        id: -(state.targetPlayerId * 10000 + i),
+                    });
+                }
+                if (fakeCards.length > 0) {
+                    stock.addCards(fakeCards);
+                }
+            }
+        }
     }
     // ========================================================================
     //  CardNameSelection state
@@ -1269,7 +1380,7 @@ class Game {
                     type: args.card_type,
                     type_arg: args.card_type_arg,
                 };
-                this.addCardToHand(card);
+                await this.addCardToHandWithDrawAnimation(card);
             }
         }
         if (playerId !== null) {
@@ -1388,13 +1499,11 @@ class Game {
         if (playerId === this.myPlayerId() && cardId !== null) {
             const type = args.card_type;
             const typeArg = this.asInt(args.card_type_arg);
-            if (type && typeArg !== null) {
-                this.addCardToHand({ id: cardId, type, type_arg: typeArg });
-            }
-            else {
-                const cached = this.getRevealedCardFromCache(cardId);
-                if (cached)
-                    this.addCardToHand(cached);
+            const card = type && typeArg !== null
+                ? { id: cardId, type, type_arg: typeArg }
+                : this.getRevealedCardFromCache(cardId);
+            if (card) {
+                await this.addCardToHandWithStealAnimation(card, targetPlayerId);
             }
         }
         this.adjustCardCountForSteal(targetPlayerId, playerId);
@@ -1409,13 +1518,11 @@ class Game {
         if (playerId === this.myPlayerId() && cardId !== null) {
             const type = args.card_type;
             const typeArg = this.asInt(args.card_type_arg);
-            if (type && typeArg !== null) {
-                this.addCardToHand({ id: cardId, type, type_arg: typeArg });
-            }
-            else {
-                const cached = this.getRevealedCardFromCache(cardId);
-                if (cached)
-                    this.addCardToHand(cached);
+            const card = type && typeArg !== null
+                ? { id: cardId, type, type_arg: typeArg }
+                : this.getRevealedCardFromCache(cardId);
+            if (card) {
+                await this.addCardToHandWithStealAnimation(card, targetPlayerId);
             }
         }
         this.adjustCardCountForSteal(targetPlayerId, playerId);
@@ -1433,13 +1540,11 @@ class Game {
         if (playerId === this.myPlayerId() && cardId !== null) {
             const type = args.card_type;
             const typeArg = this.asInt(args.card_type_arg);
-            if (type && typeArg !== null) {
-                this.addCardToHand({ id: cardId, type, type_arg: typeArg });
-            }
-            else {
-                const cached = this.getRevealedCardFromCache(cardId);
-                if (cached)
-                    this.addCardToHand(cached);
+            const card = type && typeArg !== null
+                ? { id: cardId, type, type_arg: typeArg }
+                : this.getRevealedCardFromCache(cardId);
+            if (card) {
+                await this.addCardToHandWithStealAnimation(card, targetPlayerId);
             }
         }
         this.adjustCardCountForSteal(targetPlayerId, playerId);
@@ -1541,13 +1646,17 @@ class Game {
     }
     async notif_papageddonStealPrivate(args) {
         const cardId = this.asInt(args.card_id);
+        const targetPlayerId = this.asInt(args.target_player_id);
         const playerId = this.asInt(args.player_id);
         if (playerId !== this.myPlayerId() || cardId === null)
             return;
         const type = args.card_type;
         const typeArg = this.asInt(args.card_type_arg);
-        if (type && typeArg !== null) {
-            this.addCardToHand({ id: cardId, type, type_arg: typeArg });
+        const card = type && typeArg !== null
+            ? { id: cardId, type, type_arg: typeArg }
+            : this.getRevealedCardFromCache(cardId);
+        if (card) {
+            await this.addCardToHandWithStealAnimation(card, targetPlayerId);
         }
     }
     adjustCardCountForSteal(targetPlayerId, playerId) {

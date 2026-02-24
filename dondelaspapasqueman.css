@@ -22,6 +22,38 @@
   min-width: 120px;
   max-width: 100%;
   overflow: hidden;
+  transition: box-shadow 0.2s ease, background-color 0.2s ease;
+  /* Subtle highlight when this opponent is the card-selection target */
+}
+.dlpq-opponent-hand-area.dlpq-card-selection-target {
+  border: 2px solid rgba(59, 130, 246, 0.6);
+  box-sizing: border-box;
+  background-color: rgba(59, 130, 246, 0.06);
+  /* Hover effect on opponent cards during card-selection - no per-card class needed */
+}
+.dlpq-opponent-hand-area.dlpq-card-selection-target .bga-cards_card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+}
+.dlpq-opponent-hand-area.dlpq-card-selection-target .bga-cards_card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25);
+}
+.dlpq-opponent-hand-area.dlpq-card-selection-target .card-stock .bga-cards_selectable-card,
+.dlpq-opponent-hand-area.dlpq-card-selection-target .bga-cards_selectable-card {
+  /* Override bga-cards dashed orange with solid blue */
+  border: 2px solid rgba(59, 130, 246, 0.6) !important;
+  border-style: solid !important;
+  outline: none !important;
+  box-sizing: border-box;
+  /* Remove dashed border from inner card faces */
+}
+.dlpq-opponent-hand-area.dlpq-card-selection-target .card-stock .bga-cards_selectable-card .front,
+.dlpq-opponent-hand-area.dlpq-card-selection-target .card-stock .bga-cards_selectable-card .back,
+.dlpq-opponent-hand-area.dlpq-card-selection-target .bga-cards_selectable-card .front,
+.dlpq-opponent-hand-area.dlpq-card-selection-target .bga-cards_selectable-card .back {
+  border: none !important;
+  outline: none !important;
 }
 .dlpq-opponent-hand-area .dlpq-opponent-name {
   position: absolute;

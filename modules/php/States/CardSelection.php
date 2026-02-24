@@ -18,7 +18,7 @@ class CardSelection extends GameState {
             id: 26,
             type: StateType::ACTIVE_PLAYER,
             description: clienttranslate('${actplayer} must select a card'),
-            descriptionMyTurn: clienttranslate('${you} must select a card from the target\'s hand')
+            descriptionMyTurn: clienttranslate('${you} must select a card from ${otherplayer}\'s hand')
         );
     }
 
@@ -31,6 +31,8 @@ class CardSelection extends GameState {
             return [
                 "targetPlayerId" => 0,
                 "targetPlayerName" => "",
+                "otherplayer" => "",
+                "otherplayer_id" => 0,
                 "handSize" => 0,
                 "cardBacks" => [],
             ];
@@ -82,6 +84,8 @@ class CardSelection extends GameState {
                 return [
                     "targetPlayerId" => 0,
                     "targetPlayerName" => "",
+                    "otherplayer" => "",
+                    "otherplayer_id" => 0,
                     "handSize" => 0,
                     "cardBacks" => [],
                 ];
@@ -111,6 +115,8 @@ class CardSelection extends GameState {
             return [
                 "targetPlayerId" => 0,
                 "targetPlayerName" => "",
+                "otherplayer" => "",
+                "otherplayer_id" => 0,
                 "handSize" => 0,
                 "cardBacks" => [],
             ];
@@ -161,6 +167,8 @@ class CardSelection extends GameState {
             "targetPlayerId" => $targetPlayerId,
             "targetPlayerName" => $this->game->getPlayerNameById($targetPlayerId),
             "targetPlayerColor" => $this->game->getPlayerColorById($targetPlayerId),
+            "otherplayer" => $this->game->getPlayerNameById($targetPlayerId),
+            "otherplayer_id" => $targetPlayerId,
             "handSize" => $handSize,
             "cardBacks" => $cardBacks,
         ];
